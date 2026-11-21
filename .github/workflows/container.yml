@@ -20,11 +20,14 @@ jobs:
       - uses: docker/setup-buildx-action@v4.4.1
       - name: Build worker
         uses: docker/build-push-action@v7.4.0
+        env:
+          COMPOSER_AUTH: '{"github-oauth":{"github.com":"${{ secrets.GITHUB_TOKEN }}"}}'
         with:
           context: .
           target: worker
           load: true
           tags: leuffen-pagebuilder-jekyll-runner:local
+          secret-envs: composer_auth=COMPOSER_AUTH
           cache-from: type=gha,scope=worker
           cache-to: type=gha,scope=worker,mode=max
       - name: Build CDN

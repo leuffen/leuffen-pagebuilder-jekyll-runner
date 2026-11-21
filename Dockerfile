@@ -29,7 +29,8 @@ RUN apt-get update \
 COPY --from=composer:2 /usr/bin/composer /usr/local/bin/composer
 WORKDIR /app
 COPY composer.* ./
-RUN composer install --no-dev --no-interaction --prefer-dist --no-scripts --no-autoloader
+RUN --mount=type=secret,id=composer_auth,env=COMPOSER_AUTH \
+    composer install --no-dev --no-interaction --prefer-dist --no-scripts --no-autoloader
 COPY src/ ./src/
 COPY bin/ ./bin/
 COPY LICENSE ./LICENSE
