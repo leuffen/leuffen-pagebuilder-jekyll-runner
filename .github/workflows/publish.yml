@@ -2,7 +2,6 @@ name: Publish
 
 on:
   push:
-    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -36,7 +35,9 @@ jobs:
           context: .
           file: container/Dockerfile
           push: true
-          tags: ghcr.io/${{ github.repository }}:unstable
+          tags: |
+            ghcr.io/${{ github.repository }}:sha-${{ github.sha }}
+            ${{ github.ref == 'refs/heads/main' && format('ghcr.io/{0}:unstable', github.repository) || '' }}
           secret-envs: composer_auth=COMPOSER_AUTH
           cache-from: type=gha,scope=worker
           cache-to: type=gha,scope=worker,mode=max
