@@ -37,7 +37,9 @@ jobs:
       - name: Verify RabbitMQ builds and static CDN
         run: |
           mkdir -p data/source/demo data/target
-          sudo chown 1000:1000 data/target
+          # Kickstart's runtime user may differ from UID 1000.
+          # The shared output volume must be writable by the worker.
+          sudo chmod 777 data/target
           printf 'title: Runner smoke\n' > data/source/demo/_config.yml
           printf '%s\n' '---' '---' '<h1>{{ site.title }}</h1>' > data/source/demo/index.html
           docker compose --profile cdn up --detach --no-build --wait --wait-timeout 90
