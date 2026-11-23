@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Leuffen\JekyllRunner;
+namespace Leuffen\PagebuilderPreview;
 
 use Phore\Log\PhoreLogger;
 use PhpAmqpLib\Connection\AMQPStreamConnection;
@@ -64,7 +64,7 @@ final class Worker
             $channel = null;
             $heartbeat = null;
             try {
-                // Heartbeats laufen auch während eines längeren Jekyll-Prozesses.
+                // Heartbeats laufen auch während eines längeren HTTP-Builds.
                 $amq = Config::parseAmqpConnection($this->config->amqpConnection);
                 $connection = new AMQPStreamConnection(
                     $amq['host'],
@@ -147,7 +147,7 @@ final class Worker
                         $message->ack();
                     },
                 );
-                $this->log->info('Jekyll worker ready; listening on {}', ['leuffen.jekyll.v1.requests']);
+                $this->log->info('Preview worker ready; listening on {}', ['leuffen.jekyll.v1.requests']);
 
                 // Kurze Idle-Polls machen den geordneten Stop zeitnah möglich.
                 while (!$this->stopping && $channel->is_consuming()) {
@@ -186,7 +186,7 @@ final class Worker
                 usleep(200000);
             }
         }
-        $this->log->info('Jekyll worker stopped');
+        $this->log->info('Preview worker stopped');
     }
 
     private function handleRequest(string $body, string $id): array
@@ -213,14 +213,14 @@ final class Worker
                 throw new \InvalidArgumentException('params.source and params.target must be relative directory strings');
             }
 
-            // Jekyll-Diagnosen gehören sowohl zum Ergebnis als auch in die Logs.
+            // Builder-Diagnosen gehören sowohl zum Ergebnis als auch in die Logs.
             $this->log->info('Build {}: {} -> {}', [$id, $source, $target]);
             $result = $this->builder->build($source, $target);
             if ($result['exitCode'] !== 0) {
-                $response['error'] = ['code' => 'BUILD_FAILED', 'message' => "Jekyll build failed (source: $source; target: $target)", 'details' => $result];
+                $response['error'] = ['code' => 'BUILD_FAILED', 'message' => "Preview build failed (source: $source; target: $target)", 'details' => $result];
                 $this->log->error('Build {} failed with exit code {}', [$id, $result['exitCode']]);
-                $this->log->error('Jekyll stderr: {:full}', [$result['stderr']]);
-                $this->log->error('Jekyll stdout: {:full}', [$result['stdout']]);
+                $this->log->error('Builder stderr: {:full}', [$result['stderr']]);
+                $this->log->error('Builder stdout: {:full}', [$result['stdout']]);
                 return $response;
             }
             $this->log->info('Build {} completed in {} ms', [$id, $result['durationMs']]);
