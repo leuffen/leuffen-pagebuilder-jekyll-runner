@@ -48,8 +48,6 @@ COPY bin/ ./bin/
 COPY docs/ ./docs/
 COPY LICENSE ./LICENSE
 RUN composer dump-autoload --no-dev --no-interaction --optimize \
-    && (getent group 1000 >/dev/null || groupadd --gid 1000 runner) \
-    && (id -u runner >/dev/null 2>&1 || useradd --uid 1000 --gid 1000 --create-home runner) \
     && mkdir -p /source /target /tmp/jekyll-runner \
     && chown 1000:1000 /source /target /tmp/jekyll-runner
 
