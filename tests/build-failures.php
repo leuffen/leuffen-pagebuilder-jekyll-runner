@@ -2,10 +2,9 @@
 
 declare(strict_types=1);
 
-require '/opt/vendor/autoload.php';
-require '/opt/docs/PageBuilderJekyllRunnerClient.php';
+require __DIR__ . '/vendor/autoload.php';
 
-$client = new PageBuilderJekyllRunnerClient(getenv('CONF_AMQ_CONNECTION'));
+$client = new PageBuilderJekyllRunnerClient(getenv('CONF_AMQ_CONNECTION') ?: 'rabbitmq://runner:runner@127.0.0.1:5672/');
 
 try {
     $client->build('demo', 'demo');
