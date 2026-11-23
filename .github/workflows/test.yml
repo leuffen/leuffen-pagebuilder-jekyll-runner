@@ -29,69 +29,12 @@ jobs:
           cache-from: type=gha,scope=worker
           cache-to: type=gha,scope=worker,mode=max
       - name: Check PHP and Apache syntax
-        run: |
-          docker run --rm --entrypoint sh leuffen-pagebuilder-jekyll-runner:local -c 'find /opt/src /opt/bin /opt/docs -name "*.php" -print0 | xargs -0 -n1 php -l'
-          docker run --rm --entrypoint apache2ctl leuffen-pagebuilder-jekyll-runner:local configtest
-          docker compose config --quiet
+        run: bash tests/check-syntax.sh
       - name: Verify RabbitMQ builds and static CDN
-        run: |
-          mkdir -p data/source/demo data/target
-          # Kickstart's runtime user may differ from UID 1000.
-          # The shared output volume must be writable by the worker.
-          sudo chmod 777 data/target
-          printf 'title: Runner smoke\n' > data/source/demo/_config.yml
-          printf '%s\n' '---' '---' '<h1>{{ site.title }}</h1>' > data/source/demo/index.html
-          docker compose up --detach --no-build --wait --wait-timeout 90
-
-          docker compose exec -T worker php -r '
-          require "/opt/vendor/autoload.php";
-          require "/opt/docs/PageBuilderJekyllRunnerClient.php";
-          $client = new PageBuilderJekyllRunnerClient(getenv("CONF_AMQ_CONNECTION"));
-          $result = $client->build("demo", "demo");
-          if ($result["exitCode"] !== 0) { throw new RuntimeException("Build failed"); }
-          '
-          grep -q 'Runner smoke' data/target/demo/index.html
-          sha256sum data/target/demo/index.html > "$RUNNER_TEMP/published.sha256"
-          printf '%s\n' '---' '---' '{% definitely_not_a_liquid_tag %}' > data/source/demo/index.html
-          docker compose exec -T worker php -r '
-          require "/opt/vendor/autoload.php";
-          require "/opt/docs/PageBuilderJekyllRunnerClient.php";
-          $client = new PageBuilderJekyllRunnerClient(getenv("CONF_AMQ_CONNECTION"));
-          try {
-              $client->build("demo", "demo");
-              throw new LogicException("Missing build exception");
-          } catch (PageBuilderJekyllBuildException $e) {
-              if ($e->errorCode !== "BUILD_FAILED"
-                  || !str_contains($e->getMessage(), "source: demo; target: demo")
-                  || !str_contains($e->getStderr(), "definitely_not_a_liquid_tag")
-                  || !str_contains($e->getMessage(), $e->getStderr())
-                  || !array_key_exists("stdout", $e->details)
-                  || !array_key_exists("stderr", $e->details)) { throw $e; }
-          }
-          try {
-              $client->build("missing-source", "missing-target");
-              throw new LogicException("Missing directory exception");
-          } catch (PageBuilderJekyllBuildException $e) {
-              if (!str_contains($e->getMessage(), "missing-source")
-                  || !str_contains($e->getMessage(), "missing-target")) { throw $e; }
-          }
-          try {
-              new PageBuilderJekyllRunnerClient("not-a-uri");
-              throw new LogicException("Missing connection exception");
-          } catch (PageBuilderJekyllConnectionException $e) {
-              if (!str_contains($e->getMessage(), "URI")) { throw $e; }
-          }
-          '
-          sha256sum --check "$RUNNER_TEMP/published.sha256"
-
-          curl --fail --silent --show-error -H 'Host: demo.localhost' http://localhost:8080/ | grep -q 'Runner smoke'
-          curl --fail --silent --show-error --head -H 'Host: demo.localhost' http://localhost:8080/ > /dev/null
-          test "$(curl --silent -o /dev/null -w '%{http_code}' -H 'Host: unknown.example' http://localhost:8080/)" = 403
-          test "$(curl --silent -o /dev/null -w '%{http_code}' -X POST -H 'Host: demo.localhost' http://localhost:8080/)" = 403
-          test "$(curl --silent -o /dev/null -w '%{http_code}' -H 'Host: demo.localhost' http://localhost:8080/.runner-locks/)" = 403
+        run: bash tests/integration.sh
       - name: Show service logs
         if: always()
-        run: docker compose logs --no-color
+        run: bash tests/logs.sh
       - name: Stop services
         if: always()
-        run: docker compose down --volumes --timeout 5
+        run: bash tests/cleanup.sh

@@ -22,8 +22,8 @@ mkdir -p data/source/demo/docs data/target
 printf 'title: Meine Demo\n' > data/source/demo/docs/_config.yml
 printf '%s\n' '---' '---' '<h1>{{ site.title }}</h1>' \
   > data/source/demo/docs/index.html
-docker compose up --detach --build
-docker compose logs --follow worker
+docker compose -f tests/compose.yaml up --detach --build
+docker compose -f tests/compose.yaml logs --follow worker
 ```
 
 Sobald `Jekyll worker ready` erscheint, den Log-Aufruf mit Ctrl+C beenden.
@@ -34,7 +34,7 @@ Er benötigt `php-amqplib/php-amqplib:^3.7` und Composer-Autoloading.
 Mit der Runner-Container-Dependency kann er so aufgerufen werden:
 
 ```bash
-docker compose exec -T worker php -r '
+docker compose -f tests/compose.yaml exec -T worker php -r '
 require "/opt/vendor/autoload.php";
 require "/opt/docs/PageBuilderJekyllRunnerClient.php";
 $client = new PageBuilderJekyllRunnerClient(getenv("CONF_AMQ_CONNECTION"));
@@ -200,7 +200,7 @@ Beide Dienste laufen gleichzeitig im **gleichen Container**, ohne
 `RUNNER_ROLE` oder getrennten CDN-Dienst.
 
 ```bash
-docker compose up --detach --build
+docker compose -f tests/compose.yaml up --detach --build
 curl -H 'Host: demo.localhost' http://localhost:8080/
 ```
 
@@ -212,7 +212,7 @@ Für eigene Domains können `CDN_HOST_PATTERN` und `CDN_PORT` beim
 Compose-Start gesetzt werden:
 
 ```bash
-CDN_HOST_PATTERN='*.preview.example.com' CDN_PORT=8080 docker compose up --detach --build
+CDN_HOST_PATTERN='*.preview.example.com' CDN_PORT=8080 docker compose -f tests/compose.yaml up --detach --build
 ```
 
 Wildcard-DNS beziehungsweise ein Reverse Proxy muss die gewünschten
@@ -295,8 +295,14 @@ Dateien statisch ausliefern kann.
 ## Container-Build und Veröffentlichung
 
 Der Workflow **Test** (`.github/workflows/test.yml`) baut bei Pull Requests
-und Pushes auf `main` das gemeinsame Image und prüft PHP-/Apache-Syntax,
-RabbitMQ-Build/Fehlerantwort und statische Auslieferung im selben Container.
+und Pushes auf `main` das gemeinsame Image und ruft die Skripte unter
+`tests/` auf. `tests/check-syntax.sh` prüft PHP/Apache und Compose;
+`tests/integration.sh` prüft RabbitMQ-Builds, die PHP-Exceptions und
+statische HTTP-Auslieferung. Die PHP-Testfälle liegen in
+`tests/build-success.php` und `tests/build-failures.php`, die
+Testdaten unter `tests/fixtures/`. Die Compose-Testumgebung steht in
+`tests/compose.yaml`; Logs und Aufräumen erfolgen über
+`tests/logs.sh` und `tests/cleanup.sh`.
 Der getrennte Workflow **Publish** (`.github/workflows/publish.yml`)
 startet ausschließlich nach einem erfolgreichen `Test`-Lauf für einen Push
 auf `main` und veröffentlicht das geprüfte Commit als Image in der
