@@ -41,7 +41,7 @@ jobs:
           cache-to: type=gha,scope=cdn,mode=max
       - name: Check PHP and Apache syntax
         run: |
-          docker run --rm --entrypoint sh leuffen-pagebuilder-jekyll-runner:local -c 'find /app/src /app/bin -name "*.php" -print0 | xargs -0 -n1 php -l'
+          docker run --rm --entrypoint sh leuffen-pagebuilder-jekyll-runner:local -c 'find /app/src /app/bin /app/docs -name "*.php" -print0 | xargs -0 -n1 php -l'
           docker run --rm --entrypoint httpd leuffen-pagebuilder-jekyll-runner-cdn:local -t
           docker compose --profile cdn config --quiet
       - name: Verify RabbitMQ builds and static CDN
@@ -52,48 +52,36 @@ jobs:
           printf '%s\n' '---' '---' '<h1>{{ site.title }}</h1>' > data/source/demo/index.html
           docker compose --profile cdn up --detach --no-build --wait --wait-timeout 90
 
-          cat > "$RUNNER_TEMP/build-request.php" <<'PHP'
-          <?php
-          require '/app/vendor/autoload.php';
-          use PhpAmqpLib\Connection\AMQPStreamConnection;
-          use PhpAmqpLib\Message\AMQPMessage;
-          $connection = new AMQPStreamConnection(getenv('AMQP_HOST'), 5672, getenv('AMQP_USER'), getenv('AMQP_PASSWORD'), getenv('AMQP_VHOST'));
-          $channel = $connection->channel();
-          $exchange = getenv('AMQP_EXCHANGE');
-          $queue = getenv('AMQP_QUEUE');
-          $key = getenv('AMQP_ROUTING_KEY');
-          $channel->exchange_declare($exchange, 'topic', false, true, false);
-          $channel->queue_declare($queue, false, true, false, false);
-          $channel->queue_bind($queue, $exchange, $key);
-          [$replyQueue] = $channel->queue_declare('', false, false, true, true);
-          $id = bin2hex(random_bytes(8));
-          $response = null;
-          $channel->basic_consume($replyQueue, '', false, true, false, false, function (AMQPMessage $message) use (&$response, $id) {
-              if ($message->get('correlation_id') !== $id) {
-                  throw new RuntimeException('Incorrect correlation_id');
-              }
-              $response = json_decode($message->getBody(), true, 512, JSON_THROW_ON_ERROR);
-          });
-          $request = ['version' => 1, 'id' => $id, 'method' => 'build', 'params' => ['source' => 'demo', 'target' => 'demo']];
-          $channel->basic_publish(new AMQPMessage(json_encode($request, JSON_THROW_ON_ERROR), ['content_type' => 'application/json', 'delivery_mode' => 2, 'correlation_id' => $id, 'reply_to' => $replyQueue]), $exchange, $key);
-          while ($response === null) {
-              $channel->wait(null, false, 60);
-          }
-          $expected = getenv('EXPECT_OK') === '1';
-          if (($response['ok'] ?? null) !== $expected || ($response['id'] ?? null) !== $id || (!$expected && ($response['error']['code'] ?? null) !== 'BUILD_FAILED')) {
-              throw new RuntimeException(json_encode($response));
-          }
-          echo json_encode($response, JSON_UNESCAPED_SLASHES), PHP_EOL;
-          $channel->close();
-          $connection->close();
-          PHP
-
-          docker compose exec -T -e EXPECT_OK=1 worker php < "$RUNNER_TEMP/build-request.php"
+          docker compose exec -T worker php -r '
+          require "/app/vendor/autoload.php";
+          require "/app/docs/PageBuilderJekyllRunnerClient.php";
+          $client = new PageBuilderJekyllRunnerClient(getenv("CONF_AMQ_CONNECTION"));
+          $result = $client->build("demo", "demo");
+          if ($result["exitCode"] !== 0) { throw new RuntimeException("Build failed"); }
+          '
           grep -q 'Runner smoke' data/target/demo/index.html
           sha256sum data/target/demo/index.html > "$RUNNER_TEMP/published.sha256"
-
-          printf '%s\n' '---' '---' '{% definitely_not_a_liquid_tag %}' > data/source/demo/index.html
-          docker compose exec -T -e EXPECT_OK=0 worker php < "$RUNNER_TEMP/build-request.php"
+          printf '%s\\n' '---' '---' '{% definitely_not_a_liquid_tag %}' > data/source/demo/index.html
+          docker compose exec -T worker php -r '
+          require "/app/vendor/autoload.php";
+          require "/app/docs/PageBuilderJekyllRunnerClient.php";
+          $client = new PageBuilderJekyllRunnerClient(getenv("CONF_AMQ_CONNECTION"));
+          try {
+              $client->build("demo", "demo");
+              throw new LogicException("Missing build exception");
+          } catch (RuntimeException $e) {
+              if (!str_contains($e->getMessage(), "BUILD_FAILED")
+                  || !str_contains($e->getMessage(), "source: demo; target: demo")
+                  || !str_contains($e->getMessage(), "stderr:")) { throw $e; }
+          }
+          try {
+              $client->build("missing-source", "missing-target");
+              throw new LogicException("Missing directory exception");
+          } catch (RuntimeException $e) {
+              if (!str_contains($e->getMessage(), "missing-source")
+                  || !str_contains($e->getMessage(), "missing-target")) { throw $e; }
+          }
+          '
           sha256sum --check "$RUNNER_TEMP/published.sha256"
 
           curl --fail --silent --show-error -H 'Host: demo.localhost' http://localhost:8080/ | grep -q 'Runner smoke'

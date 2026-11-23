@@ -3,11 +3,10 @@ services:
     image: rabbitmq:4
     restart: unless-stopped
     environment:
-      RABBITMQ_DEFAULT_USER: ${AMQP_USER:-runner}
-      RABBITMQ_DEFAULT_PASS: ${AMQP_PASSWORD:-runner}
-      RABBITMQ_DEFAULT_VHOST: ${AMQP_VHOST:-/}
+      RABBITMQ_DEFAULT_USER: runner
+      RABBITMQ_DEFAULT_PASS: runner
     ports:
-      - "127.0.0.1:${RABBITMQ_PORT:-5672}:5672"
+      - "127.0.0.1:5672:5672"
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "-q", "check_running"]
       interval: 5s
@@ -28,15 +27,7 @@ services:
       rabbitmq:
         condition: service_healthy
     environment:
-      AMQP_HOST: rabbitmq
-      AMQP_PORT: "5672"
-      AMQP_USER: ${AMQP_USER:-runner}
-      AMQP_PASSWORD: ${AMQP_PASSWORD:-runner}
-      AMQP_VHOST: ${AMQP_VHOST:-/}
-      AMQP_EXCHANGE: ${AMQP_EXCHANGE:-leuffen.jekyll.v1}
-      AMQP_QUEUE: ${AMQP_QUEUE:-leuffen.jekyll.v1.requests}
-      AMQP_ROUTING_KEY: ${AMQP_ROUTING_KEY:-rpc.request}
-      AMQP_RECONNECT_DELAY: ${AMQP_RECONNECT_DELAY:-30}
+      CONF_AMQ_CONNECTION: ${CONF_AMQ_CONNECTION:-rabbitmq://runner:runner@rabbitmq:5672/}
       JEKYLL_BUILD_TIMEOUT: ${JEKYLL_BUILD_TIMEOUT:-300}
     volumes:
       - ./data/source:/source:ro

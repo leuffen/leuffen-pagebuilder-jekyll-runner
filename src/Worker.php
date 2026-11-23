@@ -65,12 +65,13 @@ final class Worker
             $heartbeat = null;
             try {
                 // Heartbeats laufen auch während eines längeren Jekyll-Prozesses.
+                $amq = Config::parseAmqpConnection($this->config->amqpConnection);
                 $connection = new AMQPStreamConnection(
-                    $this->config->amqpHost,
-                    $this->config->amqpPort,
-                    $this->config->amqpUser,
-                    $this->config->amqpPassword,
-                    $this->config->amqpVhost,
+                    $amq['host'],
+                    $amq['port'],
+                    $amq['user'],
+                    $amq['password'],
+                    $amq['vhost'],
                     false,
                     'AMQPLAIN',
                     null,
@@ -84,9 +85,9 @@ final class Worker
                 $heartbeat = new PCNTLHeartbeatSender($connection);
                 $heartbeat->register();
                 $channel = $connection->channel();
-                $channel->exchange_declare($this->config->amqpExchange, 'topic', false, true, false);
-                $channel->queue_declare($this->config->amqpQueue, false, true, false, false);
-                $channel->queue_bind($this->config->amqpQueue, $this->config->amqpExchange, $this->config->amqpRoutingKey);
+                $channel->exchange_declare('leuffen.jekyll.v1', 'topic', false, true, false);
+                $channel->queue_declare('leuffen.jekyll.v1.requests', false, true, false, false);
+                $channel->queue_bind('leuffen.jekyll.v1.requests', 'leuffen.jekyll.v1', 'rpc.request');
                 $channel->basic_qos(0, 1, false);
                 $channel->confirm_select();
 
@@ -100,7 +101,7 @@ final class Worker
                     $responseReturned = true;
                 });
                 $channel->basic_consume(
-                    $this->config->amqpQueue,
+                    'leuffen.jekyll.v1.requests',
                     '',
                     false,
                     false,
@@ -116,7 +117,7 @@ final class Worker
                         $replyTo = $message->has('reply_to') ? $message->get('reply_to') : '';
                         $id = $message->has('correlation_id') ? $message->get('correlation_id') : '';
                         if (!is_string($replyTo) || !preg_match('/^[A-Za-z0-9._:-]{1,255}$/D', $replyTo)
-                            || $replyTo === $this->config->amqpQueue
+                            || $replyTo === 'leuffen.jekyll.v1.requests'
                             || !is_string($id) || !preg_match('/^[A-Za-z0-9_-]{8,128}$/D', $id)) {
                             $this->log->warning('Rejected request: invalid reply_to or correlation_id');
                             $message->reject(false);
@@ -146,7 +147,7 @@ final class Worker
                         $message->ack();
                     },
                 );
-                $this->log->info('Jekyll worker ready; listening on {}', [$this->config->amqpQueue]);
+                $this->log->info('Jekyll worker ready; listening on {}', ['leuffen.jekyll.v1.requests']);
 
                 // Kurze Idle-Polls machen den geordneten Stop zeitnah möglich.
                 while (!$this->stopping && $channel->is_consuming()) {
@@ -164,7 +165,7 @@ final class Worker
                         $error instanceof AMQPExceptionInterface => 'broker is unavailable or connection was lost; check DNS and network',
                         default => 'worker failed; check configuration and build storage',
                     };
-                    $this->log->error('RabbitMQ: {}; retry in {} seconds', [$reason, $this->config->reconnectDelay]);
+                    $this->log->error('RabbitMQ: {}; retry in {} seconds', [$reason, 30]);
                 }
             } finally {
                 $heartbeat?->unregister();
@@ -180,7 +181,7 @@ final class Worker
                 }
             }
 
-            $retryAt = microtime(true) + $this->config->reconnectDelay;
+            $retryAt = microtime(true) + 30;
             while (!$this->stopping && microtime(true) < $retryAt) {
                 usleep(200000);
             }
@@ -216,7 +217,7 @@ final class Worker
             $this->log->info('Build {}: {} -> {}', [$id, $source, $target]);
             $result = $this->builder->build($source, $target);
             if ($result['exitCode'] !== 0) {
-                $response['error'] = ['code' => 'BUILD_FAILED', 'message' => 'Jekyll build failed', 'details' => $result];
+                $response['error'] = ['code' => 'BUILD_FAILED', 'message' => "Jekyll build failed (source: $source; target: $target)", 'details' => $result];
                 $this->log->error('Build {} failed with exit code {}', [$id, $result['exitCode']]);
                 $this->log->error('Jekyll stderr: {:full}', [$result['stderr']]);
                 $this->log->error('Jekyll stdout: {:full}', [$result['stdout']]);
@@ -225,9 +226,9 @@ final class Worker
             $this->log->info('Build {} completed in {} ms', [$id, $result['durationMs']]);
             return ['version' => 1, 'id' => $id, 'ok' => true, 'result' => $result];
         } catch (\JsonException | \InvalidArgumentException $error) {
-            $response['error'] = ['code' => 'INVALID_REQUEST', 'message' => $error->getMessage(), 'details' => new \stdClass()];
+            $response['error'] = ['code' => 'INVALID_REQUEST', 'message' => $error->getMessage() . (isset($source, $target) ? " (source: $source; target: $target)" : ''), 'details' => new \stdClass()];
         } catch (\RuntimeException $error) {
-            $response['error'] = ['code' => 'BUILD_ERROR', 'message' => $error->getMessage(), 'details' => new \stdClass()];
+            $response['error'] = ['code' => 'BUILD_ERROR', 'message' => $error->getMessage() . (isset($source, $target) ? " (source: $source; target: $target)" : ''), 'details' => new \stdClass()];
         }
         $this->log->error('Request {} failed: {}', [$id, $response['error']['message']]);
         return $response;

@@ -33,6 +33,7 @@ RUN --mount=type=secret,id=composer_auth,env=COMPOSER_AUTH \
     composer install --no-dev --no-interaction --prefer-dist --no-scripts --no-autoloader
 COPY src/ ./src/
 COPY bin/ ./bin/
+COPY docs/ ./docs/
 COPY LICENSE ./LICENSE
 RUN composer dump-autoload --no-dev --no-interaction --optimize \
     && groupadd --gid 1000 runner \
@@ -46,15 +47,7 @@ ENV JEKYLL_SOURCE_ROOT=/source \
     JEKYLL_NO_BUNDLER_REQUIRE=true \
     JEKYLL_BUILD_TIMEOUT=300 \
     JEKYLL_MAX_OUTPUT_BYTES=65536 \
-    AMQP_HOST=rabbitmq \
-    AMQP_PORT=5672 \
-    AMQP_USER=runner \
-    AMQP_PASSWORD=runner \
-    AMQP_VHOST=/ \
-    AMQP_EXCHANGE=leuffen.jekyll.v1 \
-    AMQP_QUEUE=leuffen.jekyll.v1.requests \
-    AMQP_ROUTING_KEY=rpc.request \
-    AMQP_RECONNECT_DELAY=30
+    CONF_AMQ_CONNECTION=rabbitmq://runner:runner@rabbitmq:5672/
 
 USER runner
 ENTRYPOINT ["php", "/app/bin/worker.php"]

@@ -37,15 +37,7 @@ final readonly class Config
         public string $buildRoot = '/tmp/jekyll-runner',
         public int $buildTimeout = 300,
         public int $maxOutputBytes = 65536,
-        public string $amqpHost = 'rabbitmq',
-        public int $amqpPort = 5672,
-        public string $amqpUser = 'runner',
-        public string $amqpPassword = 'runner',
-        public string $amqpVhost = '/',
-        public string $amqpExchange = 'leuffen.jekyll.v1',
-        public string $amqpQueue = 'leuffen.jekyll.v1.requests',
-        public string $amqpRoutingKey = 'rpc.request',
-        public int $reconnectDelay = 30,
+        public string $amqpConnection = 'rabbitmq://runner:runner@rabbitmq:5672/',
     ) {
         foreach (['sourceRoot', 'targetRoot', 'buildRoot'] as $name) {
             $path = $this->$name;
@@ -56,14 +48,33 @@ final readonly class Config
         if ($buildTimeout < 1 || $maxOutputBytes < 1 || $maxOutputBytes > 1048576 || $reconnectDelay < 1) {
             throw new \InvalidArgumentException('Build timeout, output limit or reconnect delay is invalid');
         }
-        if ($amqpPort < 1 || $amqpPort > 65535 || $amqpHost === '' || $amqpUser === '' || $amqpVhost === '') {
-            throw new \InvalidArgumentException('AMQP host, port, user or vhost is invalid');
+        self::parseAmqpConnection($amqpConnection);
+    }
+
+    /**
+     * Decodes the single RabbitMQ URI, including the virtual host.
+     *
+     * @return array{host:string,port:int,user:string,password:string,vhost:string}
+     * @throws \InvalidArgumentException On malformed URI.
+     * @example $parts = Config::parseAmqpConnection('rabbitmq://u:p@host:5672/');
+     * @see self::fromEnvironment()
+     */
+    public static function parseAmqpConnection(string $uri): array
+    {
+        $parts = parse_url($uri);
+        if ($parts === false || !in_array(strtolower($parts['scheme'] ?? ''), ['rabbitmq', 'amqp'], true)
+            || empty($parts['host']) || !isset($parts['user'], $parts['pass'])
+            || isset($parts['query']) || isset($parts['fragment'])) {
+            throw new \InvalidArgumentException('Invalid CONF_AMQ_CONNECTION URI');
         }
-        foreach ([$amqpExchange, $amqpQueue, $amqpRoutingKey] as $name) {
-            if (!preg_match('/^[A-Za-z0-9._:-]{1,255}$/D', $name)) {
-                throw new \InvalidArgumentException('AMQP exchange, queue or routing key is invalid');
-            }
+        $user = rawurldecode($parts['user']);
+        $pass = rawurldecode($parts['pass']);
+        $vhost = rawurldecode(ltrim($parts['path'] ?? '/', '/')) ?: '/';
+        if ($user === '' || preg_match('/[\\x00-\\x1f\\x7f]/', $user . $pass . $vhost)) {
+            throw new \InvalidArgumentException('Invalid CONF_AMQ_CONNECTION user or vhost');
         }
+        return ['host' => $parts['host'], 'port' => $parts['port'] ?? 5672,
+            'user' => $user, 'password' => $pass, 'vhost' => $vhost];
     }
 
     /**
@@ -87,15 +98,7 @@ final readonly class Config
             'buildRoot' => 'JEKYLL_BUILD_ROOT',
             'buildTimeout' => 'JEKYLL_BUILD_TIMEOUT',
             'maxOutputBytes' => 'JEKYLL_MAX_OUTPUT_BYTES',
-            'amqpHost' => 'AMQP_HOST',
-            'amqpPort' => 'AMQP_PORT',
-            'amqpUser' => 'AMQP_USER',
-            'amqpPassword' => 'AMQP_PASSWORD',
-            'amqpVhost' => 'AMQP_VHOST',
-            'amqpExchange' => 'AMQP_EXCHANGE',
-            'amqpQueue' => 'AMQP_QUEUE',
-            'amqpRoutingKey' => 'AMQP_ROUTING_KEY',
-            'reconnectDelay' => 'AMQP_RECONNECT_DELAY',
+            'amqpConnection' => 'CONF_AMQ_CONNECTION',
         ];
 
         // Zahlen vor der Übernahme prüfen, damit falsche Deployments auffallen.
