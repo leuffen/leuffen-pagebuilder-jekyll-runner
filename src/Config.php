@@ -18,15 +18,7 @@ final readonly class Config
      * @param string $buildRoot Absoluter Basispfad temporärer Build-Verzeichnisse.
      * @param int $buildTimeout Maximale Jekyll-Laufzeit in Sekunden.
      * @param int $maxOutputBytes Maximale zurückgegebene Bytes pro Ausgabestrom.
-     * @param string $amqpHost RabbitMQ-Hostname.
-     * @param int $amqpPort RabbitMQ-Port.
-     * @param string $amqpUser RabbitMQ-Benutzer.
-     * @param string $amqpPassword RabbitMQ-Passwort.
-     * @param string $amqpVhost RabbitMQ-VHost.
-     * @param string $amqpExchange Gemeinsamer Topic-Exchange der Build-Worker.
-     * @param string $amqpQueue Gemeinsame dauerhafte Request-Queue.
-     * @param string $amqpRoutingKey Routing-Key für Build-Requests.
-     * @param int $reconnectDelay Pause zwischen Verbindungsversuchen in Sekunden.
+     * @param string $amqpConnection RabbitMQ connection URI including vhost.
      * @throws \InvalidArgumentException Bei ungültigen Pfaden oder Grenzwerten.
      * @example new Config(sourceRoot: '/source', targetRoot: '/target');
      * @see self::fromEnvironment()
@@ -45,8 +37,8 @@ final readonly class Config
                 throw new \InvalidArgumentException("$name must be an absolute non-root path: $path");
             }
         }
-        if ($buildTimeout < 1 || $maxOutputBytes < 1 || $maxOutputBytes > 1048576 || $reconnectDelay < 1) {
-            throw new \InvalidArgumentException('Build timeout, output limit or reconnect delay is invalid');
+        if ($buildTimeout < 1 || $maxOutputBytes < 1 || $maxOutputBytes > 1048576 ) {
+            throw new \InvalidArgumentException('Build timeout or output limit is invalid');
         }
         self::parseAmqpConnection($amqpConnection);
     }
@@ -78,7 +70,7 @@ final readonly class Config
     }
 
     /**
-     * Liest die dokumentierten JEKYLL_* und AMQP_* Container-Einstellungen.
+     * Liest JEKYLL_*-Settings und CONF_AMQ_CONNECTION.
      *
      * Nicht gesetzte Variablen verwenden die Constructor-Defaults. Ein bewusst
      * leeres Passwort bleibt leer; fehlerhafte Zahlen werden nicht still gekürzt.
