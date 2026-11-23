@@ -2,54 +2,49 @@
 
 declare(strict_types=1);
 
-namespace Leuffen\JekyllRunner;
+namespace Leuffen\PagebuilderPreview;
 
 final readonly class Config
 {
     /**
-     * Konfiguration für einen Worker und seine drei getrennten Verzeichnisse.
+     * Configuration for the RabbitMQ worker and external HTTP builder.
      *
-     * Source und Target werden als Volumes bereitgestellt; Build ist temporär.
-     * Die Zeitgrenze gilt pro Build, das Ausgabelimit jeweils für stdout/stderr.
-     * AMQP-Zugangsdaten werden nicht in Diagnosemeldungen ausgegeben.
-     *
-     * @param string $sourceRoot Absoluter Basispfad der vorhandenen Quellen.
-     * @param string $targetRoot Absoluter Basispfad der veröffentlichten Websites.
-     * @param string $buildRoot Absoluter Basispfad temporärer Build-Verzeichnisse.
-     * @param int $buildTimeout Maximale Jekyll-Laufzeit in Sekunden.
-     * @param int $maxOutputBytes Maximale zurückgegebene Bytes pro Ausgabestrom.
-     * @param string $amqpConnection RabbitMQ connection URI including vhost.
-     * @throws \InvalidArgumentException Bei ungültigen Pfaden oder Grenzwerten.
-     * @example new Config(sourceRoot: '/source', targetRoot: '/target');
+     * @param string $sourceRoot Root of the read-only source volume.
+     * @param string $targetRoot Root of the Apache CDN target volume.
+     * @param string $builderUrl HTTP base URL of the external Jekyll Builder.
+     * @param string $amqpConnection AMQP URI including the virtual host.
+     * @throws \InvalidArgumentException On invalid settings.
      * @see self::fromEnvironment()
+     * @example new Config(builderUrl: 'http://jekyll-builder');
      */
     public function __construct(
         public string $sourceRoot = '/source',
         public string $targetRoot = '/target',
-        public string $buildRoot = '/tmp/jekyll-runner',
-        public int $buildTimeout = 300,
-        public int $maxOutputBytes = 65536,
+        public string $builderUrl = 'http://jekyll-builder',
         public string $amqpConnection = 'rabbitmq://runner:runner@rabbitmq:5672/',
     ) {
-        foreach (['sourceRoot', 'targetRoot', 'buildRoot'] as $name) {
+        foreach (['sourceRoot', 'targetRoot'] as $name) {
             $path = $this->$name;
             if (!str_starts_with($path, '/') || str_contains($path, "\0") || trim($path, '/') === '') {
                 throw new \InvalidArgumentException("$name must be an absolute non-root path: $path");
             }
         }
-        if ($buildTimeout < 1 || $maxOutputBytes < 1 || $maxOutputBytes > 1048576 ) {
-            throw new \InvalidArgumentException('Build timeout or output limit is invalid');
+        $parts = parse_url($builderUrl);
+        if ($parts === false || !in_array($parts['scheme'] ?? null, ['http', 'https'], true)
+            || empty($parts['host']) || isset($parts['user'], $parts['pass'])
+            || isset($parts['query']) || isset($parts['fragment'])) {
+            throw new \InvalidArgumentException('Invalid PREVIEW_BUILDER_URL');
         }
         self::parseAmqpConnection($amqpConnection);
     }
 
     /**
-     * Decodes the single RabbitMQ URI, including the virtual host.
+     * Parses the RabbitMQ URI including its virtual host.
      *
      * @return array{host:string,port:int,user:string,password:string,vhost:string}
      * @throws \InvalidArgumentException On malformed URI.
-     * @example $parts = Config::parseAmqpConnection('rabbitmq://u:p@host:5672/');
      * @see self::fromEnvironment()
+     * @example $parts = Config::parseAmqpConnection('rabbitmq://u:p@host:5672/');
      */
     public static function parseAmqpConnection(string $uri): array
     {
@@ -62,7 +57,7 @@ final readonly class Config
         $user = rawurldecode($parts['user']);
         $pass = rawurldecode($parts['pass']);
         $vhost = rawurldecode(ltrim($parts['path'] ?? '/', '/')) ?: '/';
-        if ($user === '' || preg_match('/[\\x00-\\x1f\\x7f]/', $user . $pass . $vhost)) {
+        if ($user === '' || preg_match('/[\x00-\x1f\x7f]/', $user . $pass . $vhost)) {
             throw new \InvalidArgumentException('Invalid CONF_AMQ_CONNECTION user or vhost');
         }
         return ['host' => $parts['host'], 'port' => $parts['port'] ?? 5672,
@@ -70,45 +65,20 @@ final readonly class Config
     }
 
     /**
-     * Liest JEKYLL_*-Settings und CONF_AMQ_CONNECTION.
+     * Reads Preview and RabbitMQ settings from environment.
      *
-     * Nicht gesetzte Variablen verwenden die Constructor-Defaults. Ein bewusst
-     * leeres Passwort bleibt leer; fehlerhafte Zahlen werden nicht still gekürzt.
-     * Es werden weder Verzeichnisse angelegt noch Broker-Verbindungen geöffnet.
-     *
-     * @return self Vollständig validierte Worker-Konfiguration.
-     * @throws \InvalidArgumentException Bei ungültigen Environment-Werten.
-     * @example $config = Config::fromEnvironment();
+     * @return self Validated worker configuration.
+     * @throws \InvalidArgumentException On invalid environment values.
      * @see ../README.md
+     * @example $config = Config::fromEnvironment();
      */
     public static function fromEnvironment(): self
     {
-        $defaults = new self();
-        $variables = [
-            'sourceRoot' => 'JEKYLL_SOURCE_ROOT',
-            'targetRoot' => 'JEKYLL_TARGET_ROOT',
-            'buildRoot' => 'JEKYLL_BUILD_ROOT',
-            'buildTimeout' => 'JEKYLL_BUILD_TIMEOUT',
-            'maxOutputBytes' => 'JEKYLL_MAX_OUTPUT_BYTES',
-            'amqpConnection' => 'CONF_AMQ_CONNECTION',
-        ];
-
-        // Zahlen vor der Übernahme prüfen, damit falsche Deployments auffallen.
-        $values = [];
-        foreach ($variables as $property => $variable) {
-            $value = getenv($variable);
-            if ($value === false) {
-                $values[$property] = $defaults->$property;
-                continue;
-            }
-            if (is_int($defaults->$property)) {
-                if (!preg_match('/^[1-9][0-9]*$/D', $value) || filter_var($value, FILTER_VALIDATE_INT) === false) {
-                    throw new \InvalidArgumentException("$variable must be a positive integer");
-                }
-                $value = (int) $value;
-            }
-            $values[$property] = $value;
-        }
-        return new self(...$values);
+        return new self(
+            sourceRoot: getenv('PREVIEW_SOURCE_ROOT') ?: '/source',
+            targetRoot: getenv('PREVIEW_TARGET_ROOT') ?: '/target',
+            builderUrl: getenv('PREVIEW_BUILDER_URL') ?: 'http://jekyll-builder',
+            amqpConnection: getenv('CONF_AMQ_CONNECTION') ?: 'rabbitmq://runner:runner@rabbitmq:5672/',
+        );
     }
 }
