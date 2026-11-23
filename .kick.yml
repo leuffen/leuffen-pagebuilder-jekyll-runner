@@ -22,4 +22,4 @@ command:
     - "sudo chmod 755 /usr/local/bin/composer"
     - "composer install --no-dev --no-interaction --prefer-dist --no-scripts --optimize-autoloader"
   run:
-    - "if [ \"${RUNNER_ROLE:-worker}\" = \"worker\" ]; then php /opt/bin/worker.php; fi"
+    - "php /opt/bin/worker.php"

@@ -33,7 +33,7 @@ jobs:
         run: |
           docker run --rm --entrypoint sh leuffen-pagebuilder-jekyll-runner:local -c 'find /opt/src /opt/bin /opt/docs -name "*.php" -print0 | xargs -0 -n1 php -l'
           docker run --rm --entrypoint apache2ctl leuffen-pagebuilder-jekyll-runner:local configtest
-          docker compose --profile cdn config --quiet
+          docker compose config --quiet
       - name: Verify RabbitMQ builds and static CDN
         run: |
           mkdir -p data/source/demo data/target
@@ -42,7 +42,7 @@ jobs:
           sudo chmod 777 data/target
           printf 'title: Runner smoke\n' > data/source/demo/_config.yml
           printf '%s\n' '---' '---' '<h1>{{ site.title }}</h1>' > data/source/demo/index.html
-          docker compose --profile cdn up --detach --no-build --wait --wait-timeout 90
+          docker compose up --detach --no-build --wait --wait-timeout 90
 
           docker compose exec -T worker php -r '
           require "/opt/vendor/autoload.php";
@@ -92,10 +92,10 @@ jobs:
           test "$(curl --silent -o /dev/null -w '%{http_code}' -H 'Host: demo.localhost' http://localhost:8080/.runner-locks/)" = 403
       - name: Show service logs
         if: always()
-        run: docker compose --profile cdn logs --no-color
+        run: docker compose logs --no-color
       - name: Stop services
         if: always()
-        run: docker compose --profile cdn down --volumes --timeout 5
+        run: docker compose down --volumes --timeout 5
       - name: Log in to GHCR
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: docker/login-action@v4.8.0
@@ -109,6 +109,4 @@ jobs:
           IMAGE: ghcr.io/${{ github.repository }}
         run: |
           docker tag leuffen-pagebuilder-jekyll-runner:local "$IMAGE:unstable"
-          docker tag leuffen-pagebuilder-jekyll-runner:local "$IMAGE:cdn-unstable"
           docker push "$IMAGE:unstable"
-          docker push "$IMAGE:cdn-unstable"

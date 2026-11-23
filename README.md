@@ -2,8 +2,8 @@
 
 Dieser Container baut vorhandene Jekyll-Quellen auf Auftrag über RabbitMQ und
 antwortet mit dem Build-Ergebnis oder den Jekyll-Fehlermeldungen. Zwei Volumes
-enthalten Quellen und veröffentlichte Dateien. Ein optionaler Apache-Container
-liefert die Ergebnisse je Subdomain als statische Website aus.
+enthalten Quellen und veröffentlichte Dateien. Im selben Container startet Kickstart automatisch Apache, der die Ergebnisse
+je Subdomain als statische Website ausliefert.
 
 Die Grundlage ist der
 [MICX Page Builder Runner](https://github.com/micx-io/micx-pagebuilder-runner).
@@ -19,7 +19,6 @@ AMQP-Verbindung wird mit `CONF_AMQ_CONNECTION` als URI konfiguriert.
 
 ```bash
 mkdir -p data/source/demo/docs data/target
-export RUNNER_UID="$(id -u)" RUNNER_GID="$(id -g)"
 printf 'title: Meine Demo\n' > data/source/demo/docs/_config.yml
 printf '%s\n' '---' '---' '<h1>{{ site.title }}</h1>' \
   > data/source/demo/docs/index.html
@@ -193,45 +192,44 @@ wird dies protokolliert und der erledigte Auftrag bestätigt, um endlose
 Neubuilds zu vermeiden. Clients müssen ihre Replyqueue daher lange genug
 offenhalten und ihren Timeout zur Warteschlangenlast passend wählen.
 
-## 4. Optionales statisches Apache-CDN
+## 4. Apache im selben Container
 
-Die folgende Ergänzung verwendet die bereits erzeugte Demo-Ausgabe:
+Kickstart startet Apache beim Hochfahren des Runner-Containers automatisch;
+`command.run` in `.kick.yml` startet zusätzlich den RabbitMQ-Worker.
+Beide Dienste laufen gleichzeitig im **gleichen Container**, ohne
+`RUNNER_ROLE` oder getrennten CDN-Dienst.
 
 ```bash
-docker compose --profile cdn up --detach --build
+docker compose up --detach --build
 curl -H 'Host: demo.localhost' http://localhost:8080/
 ```
 
 `http://demo.localhost:8080/` liefert `/target/demo/index.html` aus.
-Allgemein gilt: `<projekt>.<domain>` zeigt auf `/target/<projekt>`.
-Nested Targets sind über den entsprechenden URL-Pfad erreichbar.
+Allgemein zeigt `<projekt>.<domain>` auf `/target/<projekt>`.
+Verschachtelte Targets sind über den jeweiligen URL-Pfad erreichbar.
 
-Für eine eigene Domain:
+Für eigene Domains können `CDN_HOST_PATTERN` und `CDN_PORT` beim
+Compose-Start gesetzt werden:
 
 ```bash
-CDN_HOST_PATTERN='*.preview.example.com' CDN_PORT=8080 \
-  docker compose --profile cdn up --detach --build
+CDN_HOST_PATTERN='*.preview.example.com' CDN_PORT=8080 docker compose up --detach --build
 ```
 
-Wildcard-DNS beziehungsweise ein Reverse Proxy muss die gewünschten Hostnamen
-auf den CDN-Service leiten und den Host-Header erhalten. TLS kann der Reverse
-Proxy übernehmen. `CDN_HOST_PATTERN` beschränkt die akzeptierten Hostnamen;
-die erste Host-Komponente bestimmt weiterhin das Zielverzeichnis.
-
-Das CDN-Image enthält ausschließlich Apache und bekommt nur das Target-Volume
-read-only. Es lädt weder PHP noch CGI und erlaubt nur GET/HEAD. Verzeichnislisten,
-`.htaccess`, Symlink-Zugriffe und versteckte Dateien/Verzeichnisse sind deaktiviert.
-MultiViews ermöglicht die bestehende Auslieferung von HTML ohne `.html`-Suffix.
+Wildcard-DNS beziehungsweise ein Reverse Proxy muss die gewünschten
+Hostnamen auf den Runner leiten und den Host-Header erhalten. TLS kann
+der Reverse Proxy übernehmen. Apache liefert nur statische Inhalte per
+GET/HEAD aus; PHP ist als Apache-Modul deaktiviert. Verzeichnislisten,
+`.htaccess`, Symlink-Zugriffe und versteckte Pfade sind gesperrt;
+MultiViews ermöglicht die Auslieferung ohne `.html`-Suffix.
 
 ## 5. Eigenen RabbitMQ-Server und eigene Volumes verwenden
 
 Ohne den lokalen Compose-Broker kann der Worker direkt gestartet werden:
 
 ```bash
-docker build --target worker -t leuffen-jekyll-runner .
+docker build -t leuffen-jekyll-runner .
 docker run --rm --init --name jekyll-runner \
-  --read-only --tmpfs /tmp --stop-timeout 660 \
-  --user "$(id -u):$(id -g)" \
+  --stop-timeout 660 -p 8080:80 \
   --mount type=bind,src=/srv/pagebuilder/sources,dst=/source,readonly \
   --mount type=bind,src=/srv/pagebuilder/output,dst=/target \
   --env CONF_AMQ_CONNECTION \
@@ -239,9 +237,8 @@ docker run --rm --init --name jekyll-runner \
 ```
 
 Die beiden Hostverzeichnisse müssen existieren. Der konfigurierte UID/GID
-benötigt Leserechte für Sources und Schreibrechte für Target. Das Image
-verwendet standardmäßig UID/GID `1000:1000`; Compose lässt dies über
-`RUNNER_UID`/`RUNNER_GID` anpassen. Setze zuvor `CONF_AMQ_CONNECTION` auf die vollständige Broker-URI.
+benötigt Leserechte für Sources und Schreibrechte für Target. Der Kickstart-User benötigt die entsprechenden Mount-Rechte. Setze zuvor
+`CONF_AMQ_CONNECTION` auf die vollständige Broker-URI.
 
 | Variable | Standard | Bedeutung |
 |---|---|---|
@@ -264,8 +261,9 @@ werden. Credentials und VHost bei Sonderzeichen URL-encoden.
 Routing-Key `rpc.request` sind fest. Der Worker versucht bei
 Verbindungsverlust nach 30 Sekunden erneut, ohne gesonderte AMQ-ENV.
 
-Der Client liefert bei Fehlern eine `RuntimeException` mit Fehlercode,
-Source- und Target-Verzeichnis sowie Jekyll-stderr, sofern vorhanden.
+Der Client liefert bei Build-Fehlern eine `PageBuilderJekyllBuildException`
+mit Source-/Target-Verzeichnis und vollständiger Jekyll-Ausgabe;
+Verbindungsfehler sind `PageBuilderJekyllConnectionException`.
 Auch ungültige Verzeichnisse und Reply-Timeouts nennen beide Pfade.
 
 SIGTERM/SIGINT stoppen die Annahme weiterer Aufträge; der aktuelle Build darf
@@ -287,22 +285,22 @@ sowie die PHP-Abhängigkeiten. Es werden keine Ruby-Gems manuell installiert;
 `config.php.dist` enthält die Standardwerte der `CONF_AMQ_CONNECTION`-
 und `JEKYLL_*`-Einstellungen. Kickstart erstellt daraus beim Containerstart
 die nicht versionierte `config.php`, die der Worker ausdrücklich lädt.
-Beide Dienste verwenden dasselbe Image: `RUNNER_ROLE=worker` startet
-den PHP-Consumer, `RUNNER_ROLE=cdn` verwendet Apache. Die Apache-VHosts
-werden über
-`.kicker/conf/etc/apache2/sites-available/000-default.conf`
-konfiguriert; das CDN bekommt weiterhin nur `/target` als read-only Mount.
+Kickstart startet Apache automatisch; unter `command.run` wird nur der
+Worker gestartet. Die Apache-VHosts stehen unter
+`.kicker/conf/etc/apache2/sites-available/000-default.conf`.
+Der Container erhält das Source-Volume read-only und das Target-Volume
+read-write, damit der Worker veröffentlichen und Apache dieselben
+Dateien statisch ausliefern kann.
 
 ## Container-Build und Veröffentlichung
 
-Der Workflow baut bei Pull Requests beide Images und prüft Syntax,
-RabbitMQ-Build/Fehlerantwort und statische Auslieferung. Nach einem erfolgreichen
+Der Workflow baut bei Pull Requests das gemeinsame Image und prüft Syntax,
+RabbitMQ-Build/Fehlerantwort und statische Auslieferung im selben Container. Nach einem erfolgreichen
 Push auf `main` veröffentlicht er:
 
 - `ghcr.io/leuffen/leuffen-pagebuilder-jekyll-runner:unstable`
-- `ghcr.io/leuffen/leuffen-pagebuilder-jekyll-runner:cdn-unstable`
 
-Vor dem ersten erfolgreichen `main`-Lauf sind die Images lokal zu bauen.
+Vor dem ersten erfolgreichen `main`-Lauf ist das Image lokal zu bauen.
 Die GHCR-Paket-Sichtbarkeit kann anschließend in GitHub auf öffentlich gestellt
 werden, wenn anonymer Pull gewünscht ist. Versionsreleases werden nicht erzeugt.
 Die PHP-Abhängigkeiten werden mit Composer im Container installiert;
