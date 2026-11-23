@@ -23,13 +23,16 @@ jobs:
           COMPOSER_AUTH: '{"github-oauth":{"github.com":"${{ secrets.GITHUB_TOKEN }}"}}'
         with:
           context: .
+          file: container/Dockerfile
           load: true
-          tags: leuffen-pagebuilder-jekyll-runner:local
+          tags: leuffen-pagebuilder-preview:local
           secret-envs: composer_auth=COMPOSER_AUTH
           cache-from: type=gha,scope=worker
           cache-to: type=gha,scope=worker,mode=max
       - name: Check PHP and Apache syntax
         run: bash tests/check-syntax.sh
+      - name: Install Composer preview test client
+        run: composer install --working-dir=tests --no-interaction --prefer-dist
       - name: Verify RabbitMQ builds and static CDN
         run: bash tests/integration.sh
       - name: Show service logs

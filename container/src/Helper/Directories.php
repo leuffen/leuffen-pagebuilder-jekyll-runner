@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Leuffen\JekyllRunner\Helper;
+namespace Leuffen\PagebuilderPreview\Helper;
 
 /** @internal Filesystem operations for the fixed build roots. */
 final class Directories

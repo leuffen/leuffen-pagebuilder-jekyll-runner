@@ -14,19 +14,26 @@ services:
       retries: 12
       start_period: 10s
 
+  builder:
+    image: ghcr.io/leuffen/leuffen-jekyll-builder:unstable
+    restart: unless-stopped
+
   worker:
-    image: leuffen-pagebuilder-jekyll-runner:local
+    image: leuffen-pagebuilder-preview:local
     build:
       context: ..
+      dockerfile: container/Dockerfile
     restart: unless-stopped
     init: true
     stop_grace_period: ${RUNNER_STOP_GRACE_PERIOD:-11m}
     depends_on:
       rabbitmq:
         condition: service_healthy
+      builder:
+        condition: service_started
     environment:
       CONF_AMQ_CONNECTION: ${CONF_AMQ_CONNECTION:-rabbitmq://runner:runner@rabbitmq:5672/}
-      JEKYLL_BUILD_TIMEOUT: ${JEKYLL_BUILD_TIMEOUT:-300}
+      PREVIEW_BUILDER_URL: http://builder
       CDN_HOST_PATTERN: ${CDN_HOST_PATTERN:-*.localhost}
     ports:
       - "${CDN_PORT:-8080}:80"

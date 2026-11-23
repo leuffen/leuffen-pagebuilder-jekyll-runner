@@ -1,128 +1,120 @@
-# Leuffen PageBuilder Jekyll Runner
+# Leuffen PageBuilder Preview
 
-Ein Container mit **Apache auf Port 80** und einem PHP-Worker, der Jekyll-Builds über RabbitMQ ausführt. Kickstart startet Apache automatisch und den Worker über `.kick.yml`.
+This repository contains two separately installable/deployable components:
 
-## Verzeichnisse
+- **Root Composer package** `leuffen/pagebuilder-preview-client`: the
+  RabbitMQ RPC client in `src/` (no Apache or builder dependencies).
+- **`container/`**: standalone worker and Apache CDN service, with its own
+  `composer.json`, `.kick.yml`, `Dockerfile`, `bin/` and `src/`.
 
-- `/source`: vorhandene Jekyll-Quellen; wird **nur gelesen** (read-only mount).
-- `/target`: veröffentlichte Websites; muss für den Worker **beschreibbar** sein.
+Install the client with:
 
-Ein Build von `source: kunde/docs` nach `target: kunde` liest
-`/source/kunde/docs` und veröffentlicht unter `/target/kunde`.
-
-## Apache und virtuelle Hosts
-
-Apache verwendet `CDN_HOST_PATTERN` als Wildcard-Host, standardmäßig
-`*.localhost`. Der VHost in
-`.kicker/conf/etc/apache2/sites-available/000-default.conf` enthält:
-
-```apache
-ServerAlias ${CDN_HOST_PATTERN}
-UseCanonicalName Off
-VirtualDocumentRoot /target/%1
+```bash
+composer require leuffen/pagebuilder-preview-client:dev-main
 ```
 
-Dabei wird **die erste Subdomain** (`%1`) zum Verzeichnis unter `/target`.
-Die separate `RewriteRule` weist ungültig formatierte Hostnamen ab; die
-Verzeichniszuordnung erfolgt durch `VirtualDocumentRoot`.
+Build the container from the repository root:
 
-| Einstellung | Aufruf | Ausgeliefertes Verzeichnis |
-|---|---|---|
-| `CDN_HOST_PATTERN=*.localhost` | `http://kunde.localhost/` | `/target/kunde` |
-| `CDN_HOST_PATTERN=*.preview.example.com` | `http://kunde.preview.example.com/` | `/target/kunde` |
-
-Bei der echten Domain muss ein Wildcard-DNS-Eintrag (oder ein Reverse Proxy)
-die Anfragen an den Container auf Port **80** leiten und den Host-Header
-erhalten. TLS lässt sich davor über einen Reverse Proxy bereitstellen.
-
-## RabbitMQ-Worker
-
-Der Worker lauscht auf der Queue `leuffen.jekyll.v1.requests` am Topic-Exchange
-`leuffen.jekyll.v1` mit Routing-Key `rpc.request`. Ein Build-Auftrag
-enthält die relativen Verzeichnisnamen `source` und `target`; die Antwort
-enthält das Ergebnis und die Jekyll-Ausgabe.
-
-Die Verbindung wird als einzige URI mit `CONF_AMQ_CONNECTION` gesetzt:
-
-```text
-rabbitmq://user:passwort@rabbitmq:5672/
+```bash
+docker build -f container/Dockerfile -t leuffen-pagebuilder-preview .
 ```
 
-Der Pfad hinter dem Host bezeichnet den RabbitMQ-VHost (hier `/`).
-`config.php.dist` enthält die Standardwerte; Kickstart erzeugt daraus
-`config.php`, die der Worker einliest.
+Only `container/` is copied into `/opt` in the Docker image. Server dependencies
+include `leuffen/jekyll-builder-client:dev-main` from the separate Builder
+repository; the root client package does not depend on that HTTP builder.
 
-## Docker-Stack-Beispiel
+Preview combines a **RabbitMQ worker** and an **Apache CDN on port 80** in one
+container. Only the external
+[Leuffen Jekyll Builder](https://github.com/leuffen/leuffen-jekyll-builder)
+compiles the sources over HTTP. There is no local Jekyll installation.
+
+## Build and publication
+
+1. The RabbitMQ worker accepts a request containing relative `source` and
+   `target` paths.
+2. The external Builder client zips `/source/<source>` and posts the archive
+   to `PREVIEW_BUILDER_URL/build`.
+3. The builder returns a ZIP containing the generated HTML and assets.
+4. The client extracts that ZIP into an empty staging directory on the target
+   volume. Only successful builds atomically replace `/target/<target>`.
+5. Apache immediately serves the published files.
+
+The worker keeps per-target locks to avoid concurrent replacement of
+overlapping sites. An unsuccessful build never replaces the existing site.
+
+- `/source`: read-only mount with project source files
+- `/target`: writable volume for published sites and temporary staging
+
+## Environment
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `CONF_AMQ_CONNECTION` | `rabbitmq://runner:runner@rabbitmq:5672/` | AMQP URI with vhost |
+| `PREVIEW_SOURCE_ROOT` | `/source` | Read-only source root |
+| `PREVIEW_TARGET_ROOT` | `/target` | Apache CDN target root |
+| `PREVIEW_BUILDER_URL` | `http://jekyll-builder` | External HTTP builder URL |
+| `CDN_HOST_PATTERN` | `*.localhost` | Apache wildcard hostname |
+
+Kickstart renders `config.php` from `container/config.php.dist`.
+
+## Apache CDN
+
+The Apache vhost in `container/.kicker/` uses `CDN_HOST_PATTERN` and
+`VirtualDocumentRoot /target/%1`. The first subdomain selects a directory:
+
+| Host pattern | Request | Directory |
+| --- | --- | --- |
+| `*.localhost` | `http://kunde.localhost/` | `/target/kunde` |
+| `*.preview.example.com` | `http://kunde.preview.example.com/` | `/target/kunde` |
+
+Provide wildcard DNS (or a reverse proxy) retaining the Host header.
+Terminate TLS at a reverse proxy if required.
+
+## Docker stack example
 
 ```yaml
 services:
-  rabbitmq:
-    image: rabbitmq:4
-    environment:
-      RABBITMQ_DEFAULT_USER: runner
-      RABBITMQ_DEFAULT_PASS: runner
-
-  jekyll-runner:
-    image: ghcr.io/leuffen/leuffen-pagebuilder-jekyll-runner:unstable
+  preview:
+    image: ghcr.io/leuffen/leuffen-pagebuilder-preview:unstable
     ports:
       - "80:80"
     environment:
       CONF_AMQ_CONNECTION: rabbitmq://runner:runner@rabbitmq:5672/
+      PREVIEW_BUILDER_URL: http://jekyll-builder
       CDN_HOST_PATTERN: "*.preview.example.com"
     volumes:
       - /srv/pagebuilder/source:/source:ro
       - /srv/pagebuilder/target:/target
+    networks: [builder-network]
+
+networks:
+  builder-network:
+    external: true
+    name: pagebuilder-internal
 ```
 
-Für lokale Aufrufe stattdessen `CDN_HOST_PATTERN: "*.localhost"` verwenden.
-Auf dem Host muss `/srv/pagebuilder/target` für den Container-Worker
-beschreibbar sein. Das Image startet **Apache und Worker gemeinsam**.
+Deploy the external builder on the same trusted internal Docker network,
+reachable at `http://jekyll-builder/build`. It has no built-in authentication
+and must not be exposed publicly. Make the target volume writable by the
+preview worker.
 
-## PHP-Demo-Client
+## RabbitMQ interface
 
-Der eigenständig verwendbare Client liegt in
-[`docs/PageBuilderJekyllRunnerClient.php`](docs/PageBuilderJekyllRunnerClient.php).
-In der PHP-Anwendung wird `php-amqplib/php-amqplib:^3.7` benötigt:
+The existing version-1 RPC envelope remains compatible with existing clients:
+exchange `leuffen.jekyll.v1`, queue `leuffen.jekyll.v1.requests`, routing
+key `rpc.request`. Supply `params.source` and `params.target` relative to
+the mounted roots. Each worker handles at most one build at a time, and
+acknowledges the request after publishing the response.
 
-```bash
-composer require php-amqplib/php-amqplib:^3.7
-```
+Build failures respond with `BUILD_FAILED` and diagnostic details including
+`exitCode`, `stdout`, `stderr`, `file`, `line`, `excerpt`, and
+`cause` when available. Connectivity and filesystem errors report
+`BUILD_ERROR`. The existing `PageBuilderJekyllRunnerClient` API remains
+available through the root Composer package and Composer classmap.
 
-```php
-<?php
-require __DIR__ . '/vendor/autoload.php';
-require __DIR__ . '/PageBuilderJekyllRunnerClient.php';
+## Builder dependency
 
-$client = new PageBuilderJekyllRunnerClient(
-    'rabbitmq://runner:runner@rabbitmq:5672/'
-);
-
-try {
-    $result = $client->build('kunde/docs', 'kunde');
-    echo $result['stdout'];
-} catch (PageBuilderJekyllBuildException $e) {
-    echo $e->getMessage(); // Einschließlich Jekyll stdout/stderr
-} catch (PageBuilderJekyllConnectionException $e) {
-    echo 'RabbitMQ-Fehler: ' . $e->getMessage();
-}
-```
-
-Die Pfade im `build()`-Aufruf sind immer relativ zu `/source` bzw. `/target`.
-
-## Protokoll: Request → Build → Response
-
-1. Der PHP-Client sendet einen `build`-Request mit `source`, `target`,
-   `correlation_id` und `reply_to` an RabbitMQ.
-2. Ein freier Worker verarbeitet den Request **direkt**, ohne zusätzlichen
-   Start-Delay. Ist er beschäftigt, wartet der Request in der Queue; pro
-   Worker läuft höchstens ein Build gleichzeitig.
-3. Der Worker führt Jekyll aus und sendet das Ergebnis (`ok: true`) oder
-   den Fehler (`ok: false` mit Jekyll-Ausgabe) an die Reply-Queue.
-   Nach Bestätigung des Response-Publish bestätigt er den Request (ACK).
-
-**Timeouts:** `JEKYLL_BUILD_TIMEOUT=300` Sekunden pro Build-/Snapshot-Prozess;
-der PHP-Client wartet standardmäßig höchstens **360 Sekunden insgesamt**,
-einschließlich Queue-Wartezeit (`build($source, $target, $timeout)`).
-Die Broker-Bestätigung der Response hat ein Limit von **10 Sekunden**.
-Bei Broker-Ausfall versucht der Worker die Verbindung nach **30 Sekunden**
-erneut. Ein Client-Timeout bricht einen bereits laufenden Build nicht ab.
+The container imports `Leuffen\JekyllBuilder\Client\LeuffenJekyllBuilderClient`
+from `leuffen/jekyll-builder-client:dev-main`. That package is provided by
+`leuffen/leuffen-jekyll-builder` once its Composer client restructure is
+merged. The Preview client itself only requires `php-amqplib/php-amqplib`.

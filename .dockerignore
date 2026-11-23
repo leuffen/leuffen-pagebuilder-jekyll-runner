@@ -2,5 +2,6 @@
 .github
 .env*
 vendor
+**/vendor
 data
 config.php

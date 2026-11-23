@@ -91,7 +91,7 @@ final class PageBuilderJekyllRunnerClient
      * @throws PageBuilderJekyllBuildException On failed build or invalid directories.
      * @throws PageBuilderJekyllConnectionException On invalid timeout, transport or protocol errors.
      * @example $result = $client->build('demo/docs', 'demo');
-     * @see https://github.com/leuffen/leuffen-pagebuilder-jekyll-runner
+     * @see https://github.com/leuffen/leuffen-pagebuilder-preview
      */
     public function build(string $source, string $target, int $timeout = 360): array
     {
