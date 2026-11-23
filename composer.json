@@ -10,12 +10,6 @@
     "php-amqplib/php-amqplib": "^3.7",
     "phore/log": "dev-master"
   },
-  "repositories": [
-    {
-      "type": "vcs",
-      "url": "https://github.com/phore/phore-log"
-    }
-  ],
   "autoload": {
     "psr-4": {
       "Leuffen\\JekyllRunner\\": "src/"
