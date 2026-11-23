@@ -39,6 +39,9 @@ RUN apt-get update \
     && php -r 'if (PHP_VERSION_ID < 80500) { throw new RuntimeException("Jekyll runner requires PHP >= 8.5"); } foreach (["pcntl", "posix", "sockets", "mbstring"] as $extension) { if (!extension_loaded($extension)) { throw new RuntimeException("Missing extension: " . $extension); } }' \
     && rm -rf /var/lib/apt/lists/*
 
+# Kickstart's apt Composer may reject newer GitHub Actions JWT tokens;
+# the maintained official Composer image provides a patched Composer 2.
+COPY --from=composer:2 /usr/bin/composer /usr/local/bin/composer
 WORKDIR /app
 COPY composer.* ./
 RUN --mount=type=secret,id=composer_auth,env=COMPOSER_AUTH \

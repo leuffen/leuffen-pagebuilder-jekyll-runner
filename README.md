@@ -277,8 +277,9 @@ dauerhafte Queue-Daten einen entsprechend betriebenen externen Broker nutzen.
 ## Container-Basis und Jekyll
 
 Der Worker basiert auf `ghcr.io/nfra-project/kickstart-flavor-php:8.4`,
-wie im Leuffen PageBuilder. PHP CLI, Composer und die üblichen PHP-Module
-kommen aus dem Kickstart-Image. Da der Runner PHP mindestens 8.5 benötigt,
+wie im Leuffen PageBuilder. PHP CLI und die üblichen PHP-Module kommen aus dem Kickstart-Image.
+Composer 2 wird wegen der Unterstützung aktueller GitHub-Tokenformate aus
+dem offiziellen Composer-Image übernommen. Da der Runner PHP mindestens 8.5 benötigt,
 prüft der Image-Build diese Runtime-Version ausdrücklich. Jekyll und die
 zusätzlichen Ruby-Pakete werden über Ubuntu-`apt` installiert.
 
