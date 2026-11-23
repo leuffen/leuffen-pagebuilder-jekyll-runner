@@ -1,5 +1,28 @@
 # Leuffen PageBuilder Preview
 
+This repository contains two separately installable/deployable components:
+
+- **Root Composer package** `leuffen/pagebuilder-preview-client`: the
+  RabbitMQ RPC client in `src/` (no Apache or builder dependencies).
+- **`container/`**: standalone worker and Apache CDN service, with its own
+  `composer.json`, `.kick.yml`, `Dockerfile`, `bin/` and `src/`.
+
+Install the client with:
+
+```bash
+composer require leuffen/pagebuilder-preview-client:dev-main
+```
+
+Build the container from the repository root:
+
+```bash
+docker build -f container/Dockerfile -t leuffen-pagebuilder-preview .
+```
+
+Only `container/` is copied into `/opt` in the Docker image. Server dependencies
+include `leuffen/jekyll-builder-client:dev-main` from the separate Builder
+repository; the root client package does not depend on that HTTP builder.
+
 Preview combines a **RabbitMQ worker** and an **Apache CDN on port 80** in one
 container. Only the external
 [Leuffen Jekyll Builder](https://github.com/leuffen/leuffen-jekyll-builder)
@@ -32,11 +55,11 @@ overlapping sites. An unsuccessful build never replaces the existing site.
 | `PREVIEW_BUILDER_URL` | `http://jekyll-builder` | External HTTP builder URL |
 | `CDN_HOST_PATTERN` | `*.localhost` | Apache wildcard hostname |
 
-Kickstart renders `config.php` from `config.php.dist`.
+Kickstart renders `config.php` from `container/config.php.dist`.
 
 ## Apache CDN
 
-The Apache vhost uses `CDN_HOST_PATTERN` and
+The Apache vhost in `container/.kicker/` uses `CDN_HOST_PATTERN` and
 `VirtualDocumentRoot /target/%1`. The first subdomain selects a directory:
 
 | Host pattern | Request | Directory |
@@ -86,16 +109,12 @@ acknowledges the request after publishing the response.
 Build failures respond with `BUILD_FAILED` and diagnostic details including
 `exitCode`, `stdout`, `stderr`, `file`, `line`, `excerpt`, and
 `cause` when available. Connectivity and filesystem errors report
-`BUILD_ERROR`. The existing AMQP PHP client under
-`docs/PageBuilderJekyllRunnerClient.php` remains available for compatibility.
+`BUILD_ERROR`. The existing `PageBuilderJekyllRunnerClient` API remains
+available through the root Composer package and Composer classmap.
 
-## Composer dependency prerequisite
+## Builder dependency
 
-Preview imports
-`Leuffen\JekyllBuilder\Client\LeuffenJekyllBuilderClient`
-from the external Builder, which uses `phore/http-client`.
-**The Builder repository currently only provides its PHP client under
-`docs/` and has no installable Composer package. Before this Preview image
-can build, publish the Builder client with PSR-4 autoloading as
-`leuffen/leuffen-jekyll-builder:dev-main`.** This change deliberately does
-not duplicate its client implementation.
+The container imports `Leuffen\JekyllBuilder\Client\LeuffenJekyllBuilderClient`
+from `leuffen/jekyll-builder-client:dev-main`. That package is provided by
+`leuffen/leuffen-jekyll-builder` once its Composer client restructure is
+merged. The Preview client itself only requires `php-amqplib/php-amqplib`.
