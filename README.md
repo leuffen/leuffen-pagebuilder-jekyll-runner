@@ -1,32 +1,89 @@
 # Leuffen PageBuilder Preview
 
-This repository contains two separately installable/deployable components:
+This repository provides **two complementary components**:
 
-- **Root Composer package** `leuffen/pagebuilder-preview-client`: the
-  RabbitMQ RPC client in `src/` (no Apache or builder dependencies).
-- **`container/`**: standalone worker and Apache CDN service, with its own
-  `composer.json`, `.kick.yml`, `Dockerfile`, `bin/` and `src/`.
+| Component | Usage | Location |
+| --- | --- | --- |
+| **Docker container (Preview Worker + CDN)** | Consumes RabbitMQ build requests, calls the external Jekyll Builder over HTTP, and serves generated sites via Apache | `container/` |
+| **PHP Composer client** | Sends build requests to the Preview worker through RabbitMQ and receives results or typed errors | Root `composer.json` and `src/` |
 
-Install the client with:
+The PHP client runs in the calling application; **it does not build Jekyll
+sites locally** and does not need Apache or the external HTTP Builder client.
+The Docker container includes the RabbitMQ worker and Apache CDN on port 80,
+but delegates Jekyll compilation to the
+[external Jekyll Builder](https://github.com/leuffen/leuffen-jekyll-builder).
+
+## PHP client: installation and quick start
+
+Install the standalone Composer package in the PHP application that needs to
+request Preview builds:
 
 ```bash
 composer require leuffen/pagebuilder-preview-client:dev-main
 ```
 
-Build the container from the repository root:
+The package includes `php-amqplib/php-amqplib`. The classes are loaded through
+Composer's PSR-4 autoloader; no manual `require` of the client file is necessary.
+The client is `Leuffen\PagebuilderPreview\Client\PageBuilderJekyllRunnerClient`,
+and its exceptions live in the `Client\Exception` namespace.
+
+```php
+<?php
+
+require __DIR__ . '/vendor/autoload.php';
+
+use Leuffen\PagebuilderPreview\Client\PageBuilderJekyllRunnerClient;
+use Leuffen\PagebuilderPreview\Client\Exception\PageBuilderJekyllBuildException;
+use Leuffen\PagebuilderPreview\Client\Exception\PageBuilderJekyllConnectionException;
+
+$client = new PageBuilderJekyllRunnerClient(
+    'rabbitmq://runner:runner@rabbitmq:5672/'
+);
+
+try {
+    // Both paths are relative to the worker's /source and /target mounts.
+    $result = $client->build('kunde/docs', 'kunde', 360);
+
+    echo "Build successful\n";
+    echo $result['stdout'] ?? '';
+} catch (PageBuilderJekyllBuildException $e) {
+    // RPC rejected the request or the remote Jekyll build failed.
+    echo $e->errorCode . ': ' . $e->getMessage();
+    echo $e->getStderr();
+} catch (PageBuilderJekyllConnectionException $e) {
+    // RabbitMQ connection, RPC protocol or request timeout failed.
+    echo 'Preview unavailable: ' . $e->getMessage();
+}
+```
+
+`build($source, $target, $timeout = 360)` submits one RabbitMQ RPC request and
+waits for the reply. Here `kunde/docs` refers to the **container's**
+`/source/kunde/docs` and `kunde` to its `/target/kunde`: these paths do
+**not** refer to the client application's local filesystem. The third argument
+is the overall timeout in seconds, including time spent waiting in the queue.
+The successful response is an array containing the source, target, `exitCode`,
+and available diagnostics. A failed build exposes `errorCode`, `source`,
+`target` and `details` on `PageBuilderJekyllBuildException`, plus
+`getStdout()` and `getStderr()`.
+
+The client connects directly to RabbitMQ, **not** to the HTTP Jekyll Builder.
+The client application's RabbitMQ URI must point to the same broker and vhost
+as the Preview worker's `CONF_AMQ_CONNECTION`. Keep credentials private.
+
+## Docker container: build and deployment
+
+The runtime lives exclusively in `container/`, with its own
+`composer.json`, `Dockerfile`, `.kick.yml`, `bin/` and `src/`.
+Build the image from the repository root:
 
 ```bash
 docker build -f container/Dockerfile -t leuffen-pagebuilder-preview .
 ```
 
-Only `container/` is copied into `/opt` in the Docker image. Server dependencies
-include `leuffen/jekyll-builder-client:dev-main` from the separate Builder
-repository; the root client package does not depend on that HTTP builder.
-
-Preview combines a **RabbitMQ worker** and an **Apache CDN on port 80** in one
-container. Only the external
-[Leuffen Jekyll Builder](https://github.com/leuffen/leuffen-jekyll-builder)
-compiles the sources over HTTP. There is no local Jekyll installation.
+Only `container/` is copied into `/opt` in the image. The container installs
+`leuffen/jekyll-builder-client:dev-main` to upload source ZIPs over HTTP; this
+dependency is unrelated to the PHP Preview RPC client package. The runtime
+requires reachable RabbitMQ and a separately deployed Jekyll Builder service.
 
 ## Build and publication
 
@@ -110,7 +167,7 @@ Build failures respond with `BUILD_FAILED` and diagnostic details including
 `exitCode`, `stdout`, `stderr`, `file`, `line`, `excerpt`, and
 `cause` when available. Connectivity and filesystem errors report
 `BUILD_ERROR`. The existing `PageBuilderJekyllRunnerClient` API remains
-available through the root Composer package and Composer classmap.
+available through the root Composer package and PSR-4 autoloading.
 
 ## Builder dependency
 
