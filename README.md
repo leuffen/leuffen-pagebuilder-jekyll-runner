@@ -294,13 +294,18 @@ Dateien statisch ausliefern kann.
 
 ## Container-Build und Veröffentlichung
 
-Der Workflow baut bei Pull Requests das gemeinsame Image und prüft Syntax,
-RabbitMQ-Build/Fehlerantwort und statische Auslieferung im selben Container. Nach einem erfolgreichen
-Push auf `main` veröffentlicht er:
+Der Workflow **Test** (`.github/workflows/test.yml`) baut bei Pull Requests
+und Pushes auf `main` das gemeinsame Image und prüft PHP-/Apache-Syntax,
+RabbitMQ-Build/Fehlerantwort und statische Auslieferung im selben Container.
+Der getrennte Workflow **Publish** (`.github/workflows/publish.yml`)
+startet ausschließlich nach einem erfolgreichen `Test`-Lauf für einen Push
+auf `main` und veröffentlicht das geprüfte Commit als Image in der
+GitHub Container Registry (GHCR) des Repositories:
 
 - `ghcr.io/leuffen/leuffen-pagebuilder-jekyll-runner:unstable`
 
-Vor dem ersten erfolgreichen `main`-Lauf ist das Image lokal zu bauen.
+Für Pull Requests wird kein Image veröffentlicht. Vor dem ersten erfolgreichen
+`main`-Lauf ist das Image lokal zu bauen.
 Die GHCR-Paket-Sichtbarkeit kann anschließend in GitHub auf öffentlich gestellt
 werden, wenn anonymer Pull gewünscht ist. Versionsreleases werden nicht erzeugt.
 Die PHP-Abhängigkeiten werden mit Composer im Container installiert;
