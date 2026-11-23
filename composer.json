@@ -1,33 +1,19 @@
 {
-  "name": "leuffen/leuffen-pagebuilder-preview",
-  "description": "RabbitMQ preview worker and Apache CDN backed by an external HTTP builder",
-  "type": "project",
+  "name": "leuffen/pagebuilder-preview-client",
+  "description": "RabbitMQ RPC client for the Leuffen PageBuilder Preview worker and CDN",
+  "type": "library",
   "license": "MIT",
   "require": {
-    "php": ">=8.5",
+    "php": ">=8.2",
     "ext-json": "*",
-    "ext-pcntl": "*",
-    "ext-zip": "*",
-    "php-amqplib/php-amqplib": "^3.7",
-    "phore/log": "dev-master",
-    "phore/http-client": "dev-main",
-    "leuffen/leuffen-jekyll-builder": "dev-main"
+    "php-amqplib/php-amqplib": "^3.7"
   },
   "autoload": {
-    "psr-4": {
-      "Leuffen\\PagebuilderPreview\\": "src/"
-    }
+    "classmap": [
+      "src/"
+    ]
   },
-  "repositories": [
-    {
-      "type": "vcs",
-      "url": "https://github.com/leuffen/leuffen-jekyll-builder"
-    }
-  ],
   "config": {
-    "preferred-install": "dist",
     "allow-plugins": false
-  },
-  "minimum-stability": "stable",
-  "prefer-stable": true
+  }
 }
