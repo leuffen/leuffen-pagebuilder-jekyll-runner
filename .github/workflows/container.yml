@@ -61,7 +61,7 @@ jobs:
           '
           grep -q 'Runner smoke' data/target/demo/index.html
           sha256sum data/target/demo/index.html > "$RUNNER_TEMP/published.sha256"
-          printf '%s\\n' '---' '---' '{% definitely_not_a_liquid_tag %}' > data/source/demo/index.html
+          printf '%s\n' '---' '---' '{% definitely_not_a_liquid_tag %}' > data/source/demo/index.html
           docker compose exec -T worker php -r '
           require "/app/vendor/autoload.php";
           require "/app/docs/PageBuilderJekyllRunnerClient.php";
