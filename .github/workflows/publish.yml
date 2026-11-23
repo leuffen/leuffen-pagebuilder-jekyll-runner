@@ -34,6 +34,7 @@ jobs:
           COMPOSER_AUTH: '{"github-oauth":{"github.com":"${{ secrets.GITHUB_TOKEN }}"}}'
         with:
           context: .
+          file: container/Dockerfile
           push: true
           tags: ghcr.io/${{ github.repository }}:unstable
           secret-envs: composer_auth=COMPOSER_AUTH
