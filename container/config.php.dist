@@ -1,0 +1,9 @@
+<?php
+
+declare(strict_types=1);
+
+// Kickstart substitutes environment variables when generating config.php.
+define('CONF_AMQ_CONNECTION', '%CONF_AMQ_CONNECTION?rabbitmq://runner:runner@rabbitmq:5672/%');
+define('PREVIEW_SOURCE_ROOT', '%PREVIEW_SOURCE_ROOT?/source%');
+define('PREVIEW_TARGET_ROOT', '%PREVIEW_TARGET_ROOT?/target%');
+define('PREVIEW_BUILDER_URL', '%PREVIEW_BUILDER_URL?http://jekyll-builder%');
