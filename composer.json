@@ -1,0 +1,24 @@
+{
+  "name": "leuffen/leuffen-pagebuilder-jekyll-runner",
+  "description": "Jekyll build worker with RabbitMQ RPC and an optional static CDN",
+  "type": "project",
+  "license": "MIT",
+  "require": {
+    "php": ">=8.5",
+    "ext-json": "*",
+    "ext-pcntl": "*",
+    "php-amqplib/php-amqplib": "^3.7",
+    "phore/log": "dev-master"
+  },
+  "autoload": {
+    "psr-4": {
+      "Leuffen\\JekyllRunner\\": "src/"
+    }
+  },
+  "config": {
+    "preferred-install": "dist",
+    "allow-plugins": false
+  },
+  "minimum-stability": "stable",
+  "prefer-stable": true
+}
