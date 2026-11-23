@@ -108,3 +108,21 @@ try {
 ```
 
 Die Pfade im `build()`-Aufruf sind immer relativ zu `/source` bzw. `/target`.
+
+## Protokoll: Request → Build → Response
+
+1. Der PHP-Client sendet einen `build`-Request mit `source`, `target`,
+   `correlation_id` und `reply_to` an RabbitMQ.
+2. Ein freier Worker verarbeitet den Request **direkt**, ohne zusätzlichen
+   Start-Delay. Ist er beschäftigt, wartet der Request in der Queue; pro
+   Worker läuft höchstens ein Build gleichzeitig.
+3. Der Worker führt Jekyll aus und sendet das Ergebnis (`ok: true`) oder
+   den Fehler (`ok: false` mit Jekyll-Ausgabe) an die Reply-Queue.
+   Nach Bestätigung des Response-Publish bestätigt er den Request (ACK).
+
+**Timeouts:** `JEKYLL_BUILD_TIMEOUT=300` Sekunden pro Build-/Snapshot-Prozess;
+der PHP-Client wartet standardmäßig höchstens **360 Sekunden insgesamt**,
+einschließlich Queue-Wartezeit (`build($source, $target, $timeout)`).
+Die Broker-Bestätigung der Response hat ein Limit von **10 Sekunden**.
+Bei Broker-Ausfall versucht der Worker die Verbindung nach **30 Sekunden**
+erneut. Ein Client-Timeout bricht einen bereits laufenden Build nicht ab.
