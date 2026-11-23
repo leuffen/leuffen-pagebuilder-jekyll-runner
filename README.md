@@ -274,6 +274,20 @@ Im Beispiel-Stack besitzt RabbitMQ kein persistentes Volume; die beiden
 Anwendungsverzeichnisse sind die einzigen persistenten Host-Mounts. Für
 dauerhafte Queue-Daten einen entsprechend betriebenen externen Broker nutzen.
 
+## Container-Basis und Jekyll
+
+Der Worker basiert auf `ghcr.io/nfra-project/kickstart-flavor-php:8.4`,
+wie im Leuffen PageBuilder. PHP CLI, Composer und die üblichen PHP-Module
+kommen aus dem Kickstart-Image. Da der Runner PHP mindestens 8.5 benötigt,
+prüft der Image-Build diese Runtime-Version ausdrücklich. Jekyll und die
+zusätzlichen Ruby-Pakete werden über Ubuntu-`apt` installiert.
+
+`jekyll-remote-theme` wird **nicht** installiert. Jekyll-Projekte müssen
+Layouts und Themes lokal oder als anderweitig verfügbare Jekyll-Themes
+bereitstellen. Das separate CDN verwendet `ubuntu:26.04` und installiert
+Apache mit `apt`, ohne PHP. System-Pakete werden beim Image-Build
+aktualisiert, nicht während der Container-Laufzeit.
+
 ## Container-Build und Veröffentlichung
 
 Der Workflow baut bei Pull Requests beide Images und prüft Syntax,

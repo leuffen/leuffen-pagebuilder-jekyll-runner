@@ -42,7 +42,7 @@ jobs:
       - name: Check PHP and Apache syntax
         run: |
           docker run --rm --entrypoint sh leuffen-pagebuilder-jekyll-runner:local -c 'find /app/src /app/bin /app/docs -name "*.php" -print0 | xargs -0 -n1 php -l'
-          docker run --rm --entrypoint httpd leuffen-pagebuilder-jekyll-runner-cdn:local -t
+          docker run --rm --entrypoint apache2ctl leuffen-pagebuilder-jekyll-runner-cdn:local configtest
           docker compose --profile cdn config --quiet
       - name: Verify RabbitMQ builds and static CDN
         run: |
