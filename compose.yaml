@@ -18,37 +18,30 @@ services:
     image: leuffen-pagebuilder-jekyll-runner:local
     build:
       context: .
-      target: worker
     restart: unless-stopped
     init: true
     stop_grace_period: ${RUNNER_STOP_GRACE_PERIOD:-11m}
-    user: "${RUNNER_UID:-1000}:${RUNNER_GID:-1000}"
     depends_on:
       rabbitmq:
         condition: service_healthy
     environment:
+      RUNNER_ROLE: worker
       CONF_AMQ_CONNECTION: ${CONF_AMQ_CONNECTION:-rabbitmq://runner:runner@rabbitmq:5672/}
       JEKYLL_BUILD_TIMEOUT: ${JEKYLL_BUILD_TIMEOUT:-300}
     volumes:
       - ./data/source:/source:ro
       - ./data/target:/target
-    read_only: true
-    tmpfs:
-      - /tmp
 
   cdn:
-    image: leuffen-pagebuilder-jekyll-runner-cdn:local
+    image: leuffen-pagebuilder-jekyll-runner:local
     build:
       context: .
-      target: cdn
     profiles: [cdn]
     restart: unless-stopped
     environment:
+      RUNNER_ROLE: cdn
       CDN_HOST_PATTERN: ${CDN_HOST_PATTERN:-*.localhost}
     ports:
       - "${CDN_PORT:-8080}:80"
     volumes:
       - ./data/target:/target:ro
-    read_only: true
-    tmpfs:
-      - /tmp

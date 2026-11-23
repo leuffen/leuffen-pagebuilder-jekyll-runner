@@ -24,25 +24,15 @@ jobs:
           COMPOSER_AUTH: '{"github-oauth":{"github.com":"${{ secrets.GITHUB_TOKEN }}"}}'
         with:
           context: .
-          target: worker
           load: true
           tags: leuffen-pagebuilder-jekyll-runner:local
           secret-envs: composer_auth=COMPOSER_AUTH
           cache-from: type=gha,scope=worker
           cache-to: type=gha,scope=worker,mode=max
-      - name: Build CDN
-        uses: docker/build-push-action@v7.4.0
-        with:
-          context: .
-          target: cdn
-          load: true
-          tags: leuffen-pagebuilder-jekyll-runner-cdn:local
-          cache-from: type=gha,scope=cdn
-          cache-to: type=gha,scope=cdn,mode=max
       - name: Check PHP and Apache syntax
         run: |
-          docker run --rm --entrypoint sh leuffen-pagebuilder-jekyll-runner:local -c 'find /app/src /app/bin /app/docs -name "*.php" -print0 | xargs -0 -n1 php -l'
-          docker run --rm --entrypoint apache2ctl leuffen-pagebuilder-jekyll-runner-cdn:local configtest
+          docker run --rm --entrypoint sh leuffen-pagebuilder-jekyll-runner:local -c 'find /opt/src /opt/bin /opt/docs -name "*.php" -print0 | xargs -0 -n1 php -l'
+          docker run --rm --entrypoint apache2ctl leuffen-pagebuilder-jekyll-runner:local configtest
           docker compose --profile cdn config --quiet
       - name: Verify RabbitMQ builds and static CDN
         run: |
@@ -53,8 +43,8 @@ jobs:
           docker compose --profile cdn up --detach --no-build --wait --wait-timeout 90
 
           docker compose exec -T worker php -r '
-          require "/app/vendor/autoload.php";
-          require "/app/docs/PageBuilderJekyllRunnerClient.php";
+          require "/opt/vendor/autoload.php";
+          require "/opt/docs/PageBuilderJekyllRunnerClient.php";
           $client = new PageBuilderJekyllRunnerClient(getenv("CONF_AMQ_CONNECTION"));
           $result = $client->build("demo", "demo");
           if ($result["exitCode"] !== 0) { throw new RuntimeException("Build failed"); }
@@ -63,8 +53,8 @@ jobs:
           sha256sum data/target/demo/index.html > "$RUNNER_TEMP/published.sha256"
           printf '%s\n' '---' '---' '{% definitely_not_a_liquid_tag %}' > data/source/demo/index.html
           docker compose exec -T worker php -r '
-          require "/app/vendor/autoload.php";
-          require "/app/docs/PageBuilderJekyllRunnerClient.php";
+          require "/opt/vendor/autoload.php";
+          require "/opt/docs/PageBuilderJekyllRunnerClient.php";
           $client = new PageBuilderJekyllRunnerClient(getenv("CONF_AMQ_CONNECTION"));
           try {
               $client->build("demo", "demo");
@@ -117,6 +107,6 @@ jobs:
           IMAGE: ghcr.io/${{ github.repository }}
         run: |
           docker tag leuffen-pagebuilder-jekyll-runner:local "$IMAGE:unstable"
-          docker tag leuffen-pagebuilder-jekyll-runner-cdn:local "$IMAGE:cdn-unstable"
+          docker tag leuffen-pagebuilder-jekyll-runner:local "$IMAGE:cdn-unstable"
           docker push "$IMAGE:unstable"
           docker push "$IMAGE:cdn-unstable"

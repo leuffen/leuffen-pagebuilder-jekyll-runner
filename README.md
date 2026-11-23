@@ -36,8 +36,8 @@ Mit der Runner-Container-Dependency kann er so aufgerufen werden:
 
 ```bash
 docker compose exec -T worker php -r '
-require "/app/vendor/autoload.php";
-require "/app/docs/PageBuilderJekyllRunnerClient.php";
+require "/opt/vendor/autoload.php";
+require "/opt/docs/PageBuilderJekyllRunnerClient.php";
 $client = new PageBuilderJekyllRunnerClient(getenv("CONF_AMQ_CONNECTION"));
 try {
     $result = $client->build("demo/docs", "demo");
@@ -94,7 +94,7 @@ verschachtelten Zielen. Die Lock-Dateien bleiben zur gemeinsamen Sperrung
 bestehen. Das gemeinsame Target-Dateisystem muss `flock` unterstützen.
 
 Im Image enthalten sind Jekyll, Sass, optional-front-matter, sitemap, SEO-tag,
-feed und remote-theme. Eigene Ruby-Plugins in `_plugins` werden ausgeführt.
+feed (ohne remote-theme). Eigene Ruby-Plugins in `_plugins` werden ausgeführt.
 Ein Projekt-Gemfile führt keine automatische Installation aus; zusätzliche
 Gems gehören in ein abgeleitetes Image. `JEKYLL_NO_BUNDLER_REQUIRE=true` nutzt
 die im Image installierten Gems. Das bisherige CoffeeScript-Paket ist nicht
@@ -274,20 +274,24 @@ Im Beispiel-Stack besitzt RabbitMQ kein persistentes Volume; die beiden
 Anwendungsverzeichnisse sind die einzigen persistenten Host-Mounts. Für
 dauerhafte Queue-Daten einen entsprechend betriebenen externen Broker nutzen.
 
-## Container-Basis und Jekyll
+## Kickstart-Konfiguration
 
-Der Worker basiert auf `ghcr.io/nfra-project/kickstart-flavor-php:8.4`,
-wie im Leuffen PageBuilder. PHP CLI und die üblichen PHP-Module kommen aus dem Kickstart-Image.
-Composer 2 wird wegen der Unterstützung aktueller GitHub-Tokenformate aus
-dem offiziellen Composer-Image übernommen. Da der Runner PHP mindestens 8.5 benötigt,
-prüft der Image-Build diese Runtime-Version ausdrücklich. Jekyll und die
-zusätzlichen Ruby-Pakete werden über Ubuntu-`apt` installiert.
+Das `Dockerfile` entspricht dem Muster des
+[MICX PageBuilder Runners](https://github.com/micx-io/micx-pagebuilder-runner):
+als Basis dient ausschließlich `ghcr.io/nfra-project/kickstart-flavor-php:8.4`.
+Die zusätzlichen Jekyll-Pakete stehen in `.kick.yml` unter `packages:`;
+`command.build` prüft PHP 8.5, konfiguriert Apache und installiert Composer
+sowie die PHP-Abhängigkeiten. Es werden keine Ruby-Gems manuell installiert;
+`jekyll-remote-theme` ist nicht enthalten.
 
-`jekyll-remote-theme` wird **nicht** installiert. Jekyll-Projekte müssen
-Layouts und Themes lokal oder als anderweitig verfügbare Jekyll-Themes
-bereitstellen. Das separate CDN verwendet `ubuntu:26.04` und installiert
-Apache mit `apt`, ohne PHP. System-Pakete werden beim Image-Build
-aktualisiert, nicht während der Container-Laufzeit.
+`config.php.dist` enthält die Standardwerte der `CONF_AMQ_CONNECTION`-
+und `JEKYLL_*`-Einstellungen. Kickstart erstellt daraus beim Containerstart
+die nicht versionierte `config.php`, die der Worker ausdrücklich lädt.
+Beide Dienste verwenden dasselbe Image: `RUNNER_ROLE=worker` startet
+den PHP-Consumer, `RUNNER_ROLE=cdn` verwendet Apache. Die Apache-VHosts
+werden über
+`.kicker/conf/etc/apache2/sites-available/000-default.conf`
+konfiguriert; das CDN bekommt weiterhin nur `/target` als read-only Mount.
 
 ## Container-Build und Veröffentlichung
 
