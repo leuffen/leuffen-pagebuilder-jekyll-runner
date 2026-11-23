@@ -23,12 +23,18 @@ composer require leuffen/pagebuilder-preview-client:dev-main
 ```
 
 The package includes `php-amqplib/php-amqplib`. The classes are loaded through
-Composer's autoloader; no manual `require` of the client file is necessary.
+Composer's PSR-4 autoloader; no manual `require` of the client file is necessary.
+The client is `Leuffen\PagebuilderPreview\Client\PageBuilderJekyllRunnerClient`,
+and its exceptions live in the `Client\Exception` namespace.
 
 ```php
 <?php
 
 require __DIR__ . '/vendor/autoload.php';
+
+use Leuffen\PagebuilderPreview\Client\PageBuilderJekyllRunnerClient;
+use Leuffen\PagebuilderPreview\Client\Exception\PageBuilderJekyllBuildException;
+use Leuffen\PagebuilderPreview\Client\Exception\PageBuilderJekyllConnectionException;
 
 $client = new PageBuilderJekyllRunnerClient(
     'rabbitmq://runner:runner@rabbitmq:5672/'
@@ -161,7 +167,7 @@ Build failures respond with `BUILD_FAILED` and diagnostic details including
 `exitCode`, `stdout`, `stderr`, `file`, `line`, `excerpt`, and
 `cause` when available. Connectivity and filesystem errors report
 `BUILD_ERROR`. The existing `PageBuilderJekyllRunnerClient` API remains
-available through the root Composer package and Composer classmap.
+available through the root Composer package and PSR-4 autoloading.
 
 ## Builder dependency
 
