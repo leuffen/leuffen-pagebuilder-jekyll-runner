@@ -93,7 +93,7 @@ final class BuildRunner
             $result = Command::run([
                 'jekyll', 'build', '--source', $snapshot,
                 '--destination', $outputPath, '--disable-disk-cache', '--trace',
-            ], $snapshot, $this->config->buildTimeout, $this->config->maxOutputBytes);
+            ], $snapshot, $this->config->buildTimeout, 0);
 
             // Fehlgeschlagene Jekyll-Builds verändern die bisherige Veröffentlichung nicht.
             if ($result['exitCode'] === 0) {

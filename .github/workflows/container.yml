@@ -69,17 +69,26 @@ jobs:
           try {
               $client->build("demo", "demo");
               throw new LogicException("Missing build exception");
-          } catch (RuntimeException $e) {
-              if (!str_contains($e->getMessage(), "BUILD_FAILED")
+          } catch (PageBuilderJekyllBuildException $e) {
+              if ($e->errorCode !== "BUILD_FAILED"
                   || !str_contains($e->getMessage(), "source: demo; target: demo")
-                  || !str_contains($e->getMessage(), "stderr:")) { throw $e; }
+                  || !str_contains($e->getStderr(), "definitely_not_a_liquid_tag")
+                  || !str_contains($e->getMessage(), $e->getStderr())
+                  || !array_key_exists("stdout", $e->details)
+                  || !array_key_exists("stderr", $e->details)) { throw $e; }
           }
           try {
               $client->build("missing-source", "missing-target");
               throw new LogicException("Missing directory exception");
-          } catch (RuntimeException $e) {
+          } catch (PageBuilderJekyllBuildException $e) {
               if (!str_contains($e->getMessage(), "missing-source")
                   || !str_contains($e->getMessage(), "missing-target")) { throw $e; }
+          }
+          try {
+              new PageBuilderJekyllRunnerClient("not-a-uri");
+              throw new LogicException("Missing connection exception");
+          } catch (PageBuilderJekyllConnectionException $e) {
+              if (!str_contains($e->getMessage(), "URI")) { throw $e; }
           }
           '
           sha256sum --check "$RUNNER_TEMP/published.sha256"

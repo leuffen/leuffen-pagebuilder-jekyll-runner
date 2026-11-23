@@ -39,8 +39,16 @@ docker compose exec -T worker php -r '
 require "/app/vendor/autoload.php";
 require "/app/docs/PageBuilderJekyllRunnerClient.php";
 $client = new PageBuilderJekyllRunnerClient(getenv("CONF_AMQ_CONNECTION"));
-$result = $client->build("demo/docs", "demo");
-echo $result["exitCode"], PHP_EOL;
+try {
+    $result = $client->build("demo/docs", "demo");
+    echo $result["exitCode"], PHP_EOL;
+} catch (PageBuilderJekyllBuildException $e) {
+    echo $e->getMessage(), PHP_EOL; // Vollständige Ausgabe und Verzeichnisse.
+    echo $e->getStdout(), PHP_EOL;
+    echo $e->getStderr(), PHP_EOL;
+} catch (PageBuilderJekyllConnectionException $e) {
+    echo "RabbitMQ connection error: ", $e->getMessage(), PHP_EOL;
+}
 '
 ```
 
@@ -162,8 +170,15 @@ Bei einem Jekyll-Fehler ist `ok: false`; `error.code` ist `BUILD_FAILED`.
 `error.details` enthält dieselben Ergebnisfelder wie oben, einschließlich
 Exit-Code, stdout und stderr. Bei Überschreitung der Build-Zeitgrenze ist
 `timedOut: true`; GNU timeout liefert dann normalerweise Exit-Code `124`.
-Die letzten 65.536 Bytes je Ausgabestrom werden zurückgegeben; längere
-Ausgaben setzen `outputTruncated: true`.
+Jekyll-stdout und -stderr werden bei einem fehlgeschlagenen Build
+vollständig im RPC-Reply übertragen. `PageBuilderJekyllBuildException`
+enthält beides in der Message und getrennt über `getStdout()` und
+`getStderr()`; `details` enthält die übrigen Ergebnisfelder. Für
+Connection-, Timeout- und RPC-Protokollfehler wird ausschließlich
+`PageBuilderJekyllConnectionException` verwendet. Beide
+Exception-Klassen stehen zusammen mit dem Client in derselben PHP-Datei.
+Bei sehr großen Ausgaben können dadurch große RabbitMQ-Nachrichten
+und ein entsprechend höherer Speicherverbrauch entstehen.
 
 Weitere Fehlercodes: `INVALID_REQUEST` für ungültige Nachrichten/Pfade,
 `UNKNOWN_METHOD` für andere Methoden als `build` und `BUILD_ERROR` für
@@ -235,7 +250,7 @@ verwendet standardmäßig UID/GID `1000:1000`; Compose lässt dies über
 | `JEKYLL_TARGET_ROOT` | `/target` | Target-Mount |
 | `JEKYLL_BUILD_ROOT` | `/tmp/jekyll-runner` | Temporäre Arbeitsdaten |
 | `JEKYLL_BUILD_TIMEOUT` | `300` | Sekunden je Jekyll-/Snapshot-Prozess |
-| `JEKYLL_MAX_OUTPUT_BYTES` | `65536` | Bytes pro stdout/stderr im Reply |
+| `JEKYLL_MAX_OUTPUT_BYTES` | `65536` | Limit für Snapshot-Diagnosen; Jekyll-Ausgaben werden vollständig übertragen |
 | `CDN_HOST_PATTERN` | `*.localhost` | Zulässige CDN-Hosts |
 | `CDN_PORT` | `8080` | Host-Port des Compose-CDNs |
 | `RUNNER_STOP_GRACE_PERIOD` | `11m` | Compose-Wartezeit beim Stop |

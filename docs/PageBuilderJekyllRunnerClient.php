@@ -6,6 +6,51 @@ use PhpAmqpLib\Connection\AMQPStreamConnection;
 use PhpAmqpLib\Exception\AMQPTimeoutException;
 use PhpAmqpLib\Message\AMQPMessage;
 
+/**
+ * Exception for a failed Jekyll build or a rejected build request.
+ *
+ * The complete output received from the worker is exposed in getStdout()
+ * and getStderr(), in addition to the diagnostic exception message.
+ */
+final class PageBuilderJekyllBuildException extends RuntimeException
+{
+    /**
+     * @param string $errorCode RPC error code such as BUILD_FAILED.
+     * @param string $message Remote error message.
+     * @param string $source Relative source directory.
+     * @param string $target Relative target directory.
+     * @param array<string, mixed> $details Complete RPC details, including command output.
+     */
+    public function __construct(
+        public readonly string $errorCode,
+        string $message,
+        public readonly string $source,
+        public readonly string $target,
+        public readonly array $details = [],
+    ) {
+        parent::__construct("$errorCode: $message (source: $source; target: $target)"
+            . "\nJekyll stdout:\n" . $this->getStdout()
+            . "\nJekyll stderr:\n" . $this->getStderr());
+    }
+
+    /** Return the full Jekyll stdout stream provided by the worker. */
+    public function getStdout(): string
+    {
+        return (string) ($this->details['stdout'] ?? '');
+    }
+
+    /** Return the full Jekyll stderr stream provided by the worker. */
+    public function getStderr(): string
+    {
+        return (string) ($this->details['stderr'] ?? '');
+    }
+}
+
+/** Exception for RabbitMQ connection, reply timeout and protocol failures. */
+final class PageBuilderJekyllConnectionException extends RuntimeException
+{
+}
+
 /** Portable PHP client for the Jekyll Runner (requires php-amqplib ^3.7). */
 final class PageBuilderJekyllRunnerClient
 {
@@ -15,7 +60,7 @@ final class PageBuilderJekyllRunnerClient
      * Configure a RabbitMQ URI; the path specifies the RabbitMQ vhost.
      *
      * @param string $uri RabbitMQ URI including URL-encoded credentials.
-     * @throws InvalidArgumentException On invalid URI.
+     * @throws PageBuilderJekyllConnectionException On invalid URI.
      * @example new PageBuilderJekyllRunnerClient('rabbitmq://runner:runner@rabbitmq:5672/');
      * @see build()
      */
@@ -25,13 +70,13 @@ final class PageBuilderJekyllRunnerClient
         if ($parts === false || !in_array(strtolower($parts['scheme'] ?? ''), ['rabbitmq', 'amqp'], true)
             || empty($parts['host']) || !isset($parts['user'], $parts['pass'])
             || isset($parts['query']) || isset($parts['fragment'])) {
-            throw new InvalidArgumentException('Invalid RabbitMQ connection URI');
+            throw new PageBuilderJekyllConnectionException('Invalid RabbitMQ connection URI');
         }
         $user = rawurldecode($parts['user']);
         $pass = rawurldecode($parts['pass']);
         $vhost = rawurldecode(ltrim($parts['path'] ?? '/', '/')) ?: '/';
         if ($user === '' || preg_match('/[\x00-\x1f\x7f]/', $user . $pass . $vhost)) {
-            throw new InvalidArgumentException('Invalid RabbitMQ user or vhost');
+            throw new PageBuilderJekyllConnectionException('Invalid RabbitMQ user or vhost');
         }
         $this->connection = [$parts['host'], $parts['port'] ?? 5672, $user, $pass, $vhost];
     }
@@ -43,8 +88,8 @@ final class PageBuilderJekyllRunnerClient
      * @param string $target Relative directory below the target mount.
      * @param int $timeout Deadline in seconds, including queue wait and build.
      * @return array<string,mixed> Build result with exitCode, stdout, stderr and paths.
-     * @throws InvalidArgumentException On invalid directories or timeout.
-     * @throws RuntimeException On build, transport or RPC errors.
+     * @throws PageBuilderJekyllBuildException On failed build or invalid directories.
+     * @throws PageBuilderJekyllConnectionException On invalid timeout, transport or protocol errors.
      * @example $result = $client->build('demo/docs', 'demo');
      * @see https://github.com/leuffen/leuffen-pagebuilder-jekyll-runner
      */
@@ -54,11 +99,11 @@ final class PageBuilderJekyllRunnerClient
         foreach (['source' => $source, 'target' => $target] as $name => $path) {
             if ($path === '' || str_starts_with($path, '/') || str_contains($path, "\0")
                 || preg_match('~(^|/)(\\.{1,2}|)(/|$)~', $path)) {
-                throw new InvalidArgumentException("Invalid $name directory ($context)");
+                throw new PageBuilderJekyllBuildException("INVALID_REQUEST", "Invalid $name directory", $source, $target);
             }
         }
         if ($timeout < 1) {
-            throw new InvalidArgumentException("Invalid timeout ($context)");
+            throw new PageBuilderJekyllConnectionException("Invalid timeout ($context)");
         }
         $connection = null;
         $channel = null;
@@ -87,35 +132,36 @@ final class PageBuilderJekyllRunnerClient
             while ($reply === null) {
                 $remaining = $deadline - microtime(true);
                 if ($remaining <= 0) {
-                    throw new RuntimeException("RPC_TIMEOUT after $timeout seconds ($context)");
+                    throw new PageBuilderJekyllConnectionException("RPC_TIMEOUT after $timeout seconds ($context)");
                 }
                 try {
                     $channel->wait(null, false, $remaining);
                 } catch (AMQPTimeoutException) {
-                    throw new RuntimeException("RPC_TIMEOUT after $timeout seconds ($context)");
+                    throw new PageBuilderJekyllConnectionException("RPC_TIMEOUT after $timeout seconds ($context)");
                 }
             }
             if (!is_array($reply) || ($reply['version'] ?? null) !== 1
                 || ($reply['id'] ?? null) !== $id || !is_bool($reply['ok'] ?? null)) {
-                throw new RuntimeException("INVALID_REPLY ($context)");
+                throw new PageBuilderJekyllConnectionException("INVALID_REPLY ($context)");
             }
             if (!$reply['ok']) {
                 $error = $reply['error'] ?? [];
                 $code = is_string($error['code'] ?? null) ? $error['code'] : 'UNKNOWN_ERROR';
                 $message = is_string($error['message'] ?? null) ? $error['message'] : 'Unknown error';
-                $stderr = is_array($error['details'] ?? null)
-                    ? trim((string) ($error['details']['stderr'] ?? '')) : '';
-                throw new RuntimeException("$code: $message ($context)"
-                    . ($stderr === '' ? '' : "; stderr: $stderr"));
+                $details = is_array($error['details'] ?? null) ? $error['details'] : [];
+                throw new PageBuilderJekyllBuildException($code, $message, $source, $target, $details);
             }
             if (!is_array($reply['result'] ?? null)) {
-                throw new RuntimeException("INVALID_REPLY: no build result ($context)");
+                throw new PageBuilderJekyllConnectionException("INVALID_REPLY: no build result ($context)");
             }
             return $reply['result'];
-        } catch (RuntimeException $error) {
+        } catch (PageBuilderJekyllBuildException | PageBuilderJekyllConnectionException $error) {
             throw $error;
         } catch (\Throwable $error) {
-            throw new RuntimeException("RabbitMQ connection or RPC error ($context); verify broker and vhost", 0, $error);
+            // Driver exception details may contain credentials: keep the public message safe.
+            throw new PageBuilderJekyllConnectionException(
+                "RabbitMQ connection or RPC error ($context); verify broker and vhost", 0, $error,
+            );
         } finally {
             try {
                 $channel?->close();

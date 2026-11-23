@@ -64,10 +64,11 @@ final class Command
         ];
     }
 
+    // A limit of zero preserves the complete process output for build diagnostics.
     private static function append(string &$output, string $chunk, int $limit, bool &$truncated): void
     {
         $output .= $chunk;
-        if (strlen($output) > $limit) {
+        if ($limit > 0 && strlen($output) > $limit) {
             $output = substr($output, -$limit);
             $truncated = true;
         }
