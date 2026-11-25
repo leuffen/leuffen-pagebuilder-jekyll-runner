@@ -19,12 +19,13 @@
   },
   "repositories": [
     {
-      "type": "vcs",
-      "url": "https://github.com/leuffen/leuffen-jekyll-builder"
+      "type": "git",
+      "url": "https://github.com/leuffen/leuffen-jekyll-builder.git"
     }
   ],
   "config": {
     "preferred-install": "dist",
+    "github-protocols": ["https"],
     "allow-plugins": false
   },
   "minimum-stability": "stable",
