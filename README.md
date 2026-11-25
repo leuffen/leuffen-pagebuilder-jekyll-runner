@@ -66,6 +66,18 @@ and available diagnostics. A failed build exposes `errorCode`, `source`,
 `target` and `details` on `PageBuilderJekyllBuildException`, plus
 `getStdout()` and `getStderr()`.
 
+Successful builds include `debugInfo` in the result. Failed Jekyll builds
+include the same field in `$e->details`. It is forwarded from the external
+builder, for example:
+
+```json
+{"timingInfo":{"jekyll":1234},"warnings":[],"truncated":false}
+```
+
+Process durations are measured in milliseconds; `durationMs` remains the
+overall preview worker duration. Warnings contain explicit Jekyll warning
+lines and may be incomplete when `truncated` is `true`.
+
 The client connects directly to RabbitMQ, **not** to the HTTP Jekyll Builder.
 The client application's RabbitMQ URI must point to the same broker and vhost
 as the Preview worker's `CONF_AMQ_CONNECTION`. Keep credentials private.
@@ -111,6 +123,7 @@ overlapping sites. An unsuccessful build never replaces the existing site.
 | `PREVIEW_TARGET_ROOT` | `/target` | Apache CDN target root |
 | `PREVIEW_BUILDER_URL` | `http://jekyll-builder` | External HTTP builder URL |
 | `CDN_HOST_PATTERN` | `*.localhost` | Apache wildcard hostname |
+| `PREVIEW_RELOAD_JS_URL` | empty (disabled) | Absolute HTTP(S) URL of an externally hosted reload script |
 
 Kickstart renders `config.php` from `container/config.php.dist`.
 
@@ -127,6 +140,34 @@ The Apache vhost in `container/.kicker/` uses `CDN_HOST_PATTERN` and
 Provide wildcard DNS (or a reverse proxy) retaining the Host header.
 Terminate TLS at a reverse proxy if required.
 
+### Optional preview reload script
+
+Set `PREVIEW_RELOAD_JS_URL` to the URL string that should appear in the
+script tag of the HTML response, for example:
+
+```yaml
+environment:
+  PREVIEW_RELOAD_JS_URL: "https://preview-tools.example.com/reload.js"
+```
+
+Apache injects the following tag immediately before the closing `</body>`
+tag in `text/html` responses (case-insensitive):
+
+```html
+<script src="https://preview-tools.example.com/reload.js"></script>
+```
+
+The setting is a URL string, not JavaScript source or a local file path.
+The browser loads the script directly from the specified server. The preview
+container does not serve or proxy the script. Use HTTPS for HTTPS previews
+and ensure the external script is trusted and allowed by the site's Content
+Security Policy.
+
+Kickstart renders the Apache virtual host on container startup. If the
+variable is unset or empty, no substitution filter is configured. Static
+files on the target volume and non-HTML responses are unchanged. Recreate
+the container to change the setting.
+
 ## Docker stack example
 
 ```yaml
@@ -139,6 +180,7 @@ services:
       CONF_AMQ_CONNECTION: rabbitmq://runner:runner@rabbitmq:5672/
       PREVIEW_BUILDER_URL: http://jekyll-builder
       CDN_HOST_PATTERN: "*.preview.example.com"
+      PREVIEW_RELOAD_JS_URL: "https://preview-tools.example.com/reload.js"
     volumes:
       - /srv/pagebuilder/source:/source:ro
       - /srv/pagebuilder/target:/target
@@ -165,7 +207,8 @@ acknowledges the request after publishing the response.
 
 Build failures respond with `BUILD_FAILED` and diagnostic details including
 `exitCode`, `stdout`, `stderr`, `file`, `line`, `excerpt`, and
-`cause` when available. Connectivity and filesystem errors report
+`cause` when available, plus `debugInfo` from the builder. Successful
+RPC results also include `debugInfo`. Connectivity and filesystem errors report
 `BUILD_ERROR`. The existing `PageBuilderJekyllRunnerClient` API remains
 available through the root Composer package and PSR-4 autoloading.
 
@@ -173,5 +216,7 @@ available through the root Composer package and PSR-4 autoloading.
 
 The container imports `Leuffen\JekyllBuilder\Client\LeuffenJekyllBuilderClient`
 from `leuffen/jekyll-builder-client:dev-main`. That package is provided by
-`leuffen/leuffen-jekyll-builder` once its Composer client restructure is
-merged. The Preview client itself only requires `php-amqplib/php-amqplib`.
+`leuffen/leuffen-jekyll-builder`. Deploy a builder image that includes the
+`X-Debug-Info` header and use its updated Composer client before running the
+Preview integration tests. The Preview client itself only requires
+`php-amqplib/php-amqplib`.

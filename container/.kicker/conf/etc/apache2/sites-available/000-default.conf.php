@@ -22,6 +22,23 @@
         Require method GET HEAD
     </Directory>
 
+<?php
+$reloadUrl = getenv('PREVIEW_RELOAD_JS_URL');
+if ($reloadUrl !== false && $reloadUrl !== '') {
+    // Only accept an absolute HTTP(S) URL safe for the Apache substitution.
+    if (
+        !preg_match('~\Ahttps?://[A-Za-z0-9._:/?#\[\]@!$&\'()*+,;=%-]+\z~i', $reloadUrl)
+        || !parse_url($reloadUrl, PHP_URL_HOST)
+    ) {
+        throw new RuntimeException('PREVIEW_RELOAD_JS_URL must be an absolute HTTP(S) URL');
+    }
+    echo "    AddOutputFilterByType SUBSTITUTE text/html\n";
+    echo '    Substitute "s|</body>|<script src=\"'
+        . htmlspecialchars($reloadUrl, ENT_QUOTES, 'UTF-8')
+        . '\"></script></body>|ni"' . "\n";
+}
+?>
+
     # Internal publishing directories and hidden files are never served.
     <DirectoryMatch "(^|/)\.">
         Require all denied

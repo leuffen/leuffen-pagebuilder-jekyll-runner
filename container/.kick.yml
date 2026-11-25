@@ -11,7 +11,7 @@ config_file:
 command:
   build:
     - "sudo a2dismod php8.5"
-    - "sudo a2enmod headers rewrite vhost_alias negotiation"
+    - "sudo a2enmod headers rewrite vhost_alias negotiation filter substitute"
     - >-
       php -r 'if (PHP_VERSION_ID < 80500) { throw new RuntimeException("PHP >= 8.5 required"); } foreach (["pcntl", "posix", "sockets", "mbstring", "zip"] as $extension) { if (!extension_loaded($extension)) { throw new RuntimeException("Missing extension: " . $extension); } }'
     - "sudo mkdir -p /source /target"
@@ -19,5 +19,7 @@ command:
     - "sudo curl -fsSL https://getcomposer.org/composer-stable.phar -o /usr/local/bin/composer"
     - "sudo chmod 755 /usr/local/bin/composer"
     - "composer install --no-dev --no-interaction --prefer-dist --no-scripts --optimize-autoloader"
+  init:
+    - "sudo mv /etc/apache2/sites-available/000-default.conf.php /etc/apache2/sites-available/000-default.conf"
   run:
     - "php /opt/bin/worker.php"

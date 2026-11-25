@@ -11,3 +11,9 @@ $result = $client->build('demo', 'demo');
 if ($result['exitCode'] !== 0) {
     throw new RuntimeException('Build failed');
 }
+
+$debug = $result['debugInfo'] ?? [];
+if (!is_int($debug['timingInfo']['jekyll'] ?? null) || $debug['timingInfo']['jekyll'] < 0
+    || !is_array($debug['warnings'] ?? null) || !is_bool($debug['truncated'] ?? null)) {
+    throw new RuntimeException('Missing or invalid builder debug metadata in RPC result');
+}

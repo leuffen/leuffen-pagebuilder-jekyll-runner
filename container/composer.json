@@ -17,12 +17,6 @@
       "Leuffen\\PagebuilderPreview\\": "src/"
     }
   },
-  "repositories": [
-    {
-      "type": "vcs",
-      "url": "https://github.com/leuffen/leuffen-jekyll-builder"
-    }
-  ],
   "config": {
     "preferred-install": "dist",
     "allow-plugins": false
