@@ -72,8 +72,9 @@ final class BuildRunner
             $outputPath = $staging . '/site';
 
             // The official HTTP client creates the upload ZIP and extracts the response.
+            $client = new LeuffenJekyllBuilderClient($this->config->builderUrl);
             try {
-                (new LeuffenJekyllBuilderClient($this->config->builderUrl))->build($sourcePath, $outputPath);
+                $client->build($sourcePath, $outputPath);
             } catch (JekyllBuilderBuildException $error) {
                 return [
                     'source' => $source, 'target' => $target,
@@ -82,6 +83,7 @@ final class BuildRunner
                     'file' => $error->sourceFile, 'line' => $error->sourceLine,
                     'cause' => $error->cause, 'excerpt' => $error->excerpt,
                     'httpStatus' => $error->httpStatus,
+                    'debugInfo' => $client->getDebugInfo(),
                     'durationMs' => (int) ((hrtime(true) - $started) / 1000000),
                 ];
             }
@@ -94,6 +96,7 @@ final class BuildRunner
             return [
                 'source' => $source, 'target' => $target, 'exitCode' => 0,
                 'stdout' => '', 'stderr' => '',
+                'debugInfo' => $client->getDebugInfo(),
                 'durationMs' => (int) ((hrtime(true) - $started) / 1000000),
             ];
         } finally {

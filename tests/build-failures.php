@@ -22,6 +22,11 @@ try {
         || !array_key_exists('stderr', $e->details)) {
         throw $e;
     }
+    $debug = $e->details['debugInfo'] ?? [];
+    if (!is_int($debug['timingInfo']['jekyll'] ?? null) || $debug['timingInfo']['jekyll'] < 0
+        || !is_array($debug['warnings'] ?? null) || !is_bool($debug['truncated'] ?? null)) {
+        throw new RuntimeException('Missing or invalid builder debug metadata in RPC error', 0, $e);
+    }
 }
 
 try {
