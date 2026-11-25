@@ -123,7 +123,7 @@ overlapping sites. An unsuccessful build never replaces the existing site.
 | `PREVIEW_TARGET_ROOT` | `/target` | Apache CDN target root |
 | `PREVIEW_BUILDER_URL` | `http://jekyll-builder` | External HTTP builder URL |
 | `CDN_HOST_PATTERN` | `*.localhost` | Apache wildcard hostname |
-| `PREVIEW_RELOAD_JS` | empty (disabled) | Custom JavaScript source for the preview reload hook |
+| `PREVIEW_RELOAD_JS_URL` | empty (disabled) | Absolute HTTP(S) URL of an externally hosted reload script |
 
 Kickstart renders `config.php` from `container/config.php.dist`.
 
@@ -142,19 +142,31 @@ Terminate TLS at a reverse proxy if required.
 
 ### Optional preview reload script
 
-Set `PREVIEW_RELOAD_JS` to your JavaScript source (including multiline
-code if needed). On startup, Kickstart makes the script available at the
-reserved same-origin path `/__preview_reload.js`. Apache `mod_substitute`
-inserts a script tag immediately before the closing `</body>` tag in
-`text/html` responses (case-insensitive). Static files on the target
-volume are not changed; non-HTML responses are not filtered.
+Set `PREVIEW_RELOAD_JS_URL` to the URL string that should appear in the
+script tag of the HTML response, for example:
 
-When the variable is unset or empty, both the filter and the script
-endpoint are disabled. Recreate the container to change the setting.
-The script is shared by all preview hosts and is public to their
-visitors; configure only trusted JavaScript and do not include secrets.
-The application's content security policy must allow the same-origin
-script.
+```yaml
+environment:
+  PREVIEW_RELOAD_JS_URL: "https://preview-tools.example.com/reload.js"
+```
+
+Apache injects the following tag immediately before the closing `</body>`
+tag in `text/html` responses (case-insensitive):
+
+```html
+<script src="https://preview-tools.example.com/reload.js"></script>
+```
+
+The setting is a URL string, not JavaScript source or a local file path.
+The browser loads the script directly from the specified server. The preview
+container does not serve or proxy the script. Use HTTPS for HTTPS previews
+and ensure the external script is trusted and allowed by the site's Content
+Security Policy.
+
+Kickstart renders the Apache virtual host on container startup. If the
+variable is unset or empty, no substitution filter is configured. Static
+files on the target volume and non-HTML responses are unchanged. Recreate
+the container to change the setting.
 
 ## Docker stack example
 
@@ -168,6 +180,7 @@ services:
       CONF_AMQ_CONNECTION: rabbitmq://runner:runner@rabbitmq:5672/
       PREVIEW_BUILDER_URL: http://jekyll-builder
       CDN_HOST_PATTERN: "*.preview.example.com"
+      PREVIEW_RELOAD_JS_URL: "https://preview-tools.example.com/reload.js"
     volumes:
       - /srv/pagebuilder/source:/source:ro
       - /srv/pagebuilder/target:/target
