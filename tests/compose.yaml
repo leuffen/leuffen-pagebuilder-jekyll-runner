@@ -25,7 +25,7 @@ services:
       dockerfile: container/Dockerfile
     restart: unless-stopped
     init: true
-    stop_grace_period: ${RUNNER_STOP_GRACE_PERIOD:-11m}
+    stop_grace_period: ${RUNNER_STOP_GRACE_PERIOD:-5s}
     depends_on:
       rabbitmq:
         condition: service_healthy
