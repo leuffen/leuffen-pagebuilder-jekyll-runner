@@ -123,6 +123,7 @@ overlapping sites. An unsuccessful build never replaces the existing site.
 | `PREVIEW_TARGET_ROOT` | `/target` | Apache CDN target root |
 | `PREVIEW_BUILDER_URL` | `http://jekyll-builder` | External HTTP builder URL |
 | `CDN_HOST_PATTERN` | `*.localhost` | Apache wildcard hostname |
+| `PREVIEW_RELOAD_JS` | empty (disabled) | Custom JavaScript source for the preview reload hook |
 
 Kickstart renders `config.php` from `container/config.php.dist`.
 
@@ -138,6 +139,22 @@ The Apache vhost in `container/.kicker/` uses `CDN_HOST_PATTERN` and
 
 Provide wildcard DNS (or a reverse proxy) retaining the Host header.
 Terminate TLS at a reverse proxy if required.
+
+### Optional preview reload script
+
+Set `PREVIEW_RELOAD_JS` to your JavaScript source (including multiline
+code if needed). On startup, Kickstart makes the script available at the
+reserved same-origin path `/__preview_reload.js`. Apache `mod_substitute`
+inserts a script tag immediately before the closing `</body>` tag in
+`text/html` responses (case-insensitive). Static files on the target
+volume are not changed; non-HTML responses are not filtered.
+
+When the variable is unset or empty, both the filter and the script
+endpoint are disabled. Recreate the container to change the setting.
+The script is shared by all preview hosts and is public to their
+visitors; configure only trusted JavaScript and do not include secrets.
+The application's content security policy must allow the same-origin
+script.
 
 ## Docker stack example
 

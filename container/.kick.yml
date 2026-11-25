@@ -11,7 +11,7 @@ config_file:
 command:
   build:
     - "sudo a2dismod php8.5"
-    - "sudo a2enmod headers rewrite vhost_alias negotiation"
+    - "sudo a2enmod headers rewrite vhost_alias negotiation filter substitute"
     - >-
       php -r 'if (PHP_VERSION_ID < 80500) { throw new RuntimeException("PHP >= 8.5 required"); } foreach (["pcntl", "posix", "sockets", "mbstring", "zip"] as $extension) { if (!extension_loaded($extension)) { throw new RuntimeException("Missing extension: " . $extension); } }'
     - "sudo mkdir -p /source /target"
@@ -19,5 +19,15 @@ command:
     - "sudo curl -fsSL https://getcomposer.org/composer-stable.phar -o /usr/local/bin/composer"
     - "sudo chmod 755 /usr/local/bin/composer"
     - "composer install --no-dev --no-interaction --prefer-dist --no-scripts --optimize-autoloader"
+  init:
+    - >-
+      if [ -n "${PREVIEW_RELOAD_JS:-}" ]; then
+        sudo install -d -m 0755 /run/leuffen-preview &&
+        printf '%s' "$PREVIEW_RELOAD_JS" | sudo tee /run/leuffen-preview/reload.js >/dev/null &&
+        sudo chmod 0644 /run/leuffen-preview/reload.js &&
+        printf '%s\n' 'Define PREVIEW_RELOAD' | sudo tee /run/leuffen-preview/enabled.conf >/dev/null;
+      else
+        sudo rm -f /run/leuffen-preview/enabled.conf /run/leuffen-preview/reload.js;
+      fi
   run:
     - "php /opt/bin/worker.php"
