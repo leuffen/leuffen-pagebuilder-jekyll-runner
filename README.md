@@ -140,21 +140,31 @@ The Apache vhost in `container/.kicker/` uses `CDN_HOST_PATTERN` and
 Provide wildcard DNS (or a reverse proxy) retaining the Host header.
 Terminate TLS at a reverse proxy if required.
 
-### Jekyll permalink routing
+### GitHub Pages-compatible Jekyll routing
 
-Jekyll writes static output files; the Apache CDN must support both flat HTML
-files and directory-style permalinks without changing the published files.
+**Compatibility requirement:** Apache must resolve published Jekyll URLs like
+GitHub Pages so that preview links behave the same as on the deployed site.
+Preserve this routing contract when changing Apache modules, virtual hosts or
+output filters. Jekyll writes static output files; both flat HTML files and
+directory-style permalinks must work without changing the published files.
 The URL is resolved relative to the current project's virtual document root.
+This is a static URL-routing contract, not a promise to replicate every GitHub
+Pages HTTP header, CDN feature or error-page design.
 
 | Generated file | Request path | Expected result |
 | --- | --- | --- |
 | `index.html` | `/` | 200, index page |
-| `online-termin.html` | `/online-termin.html` or `/online-termin` | 200, same HTML |
+| `online-termin.html` | `/online-termin.html` or `/online-termin` | 200, same HTML, no redirect |
+| `online-termin.html` | `/online-termin/` | 404, not a directory permalink |
+| `online-termin.html` and `online-termin.css` | `/online-termin` | 200, HTML, independent of Accept |
+| `online-termin` and `online-termin.html` | `/online-termin` | 200, exact file takes precedence |
 | `leistungen/beratung.html` | `/leistungen/beratung` | 200, nested HTML |
 | `kontakt/index.html` | `/kontakt/` | 200, directory index |
 | `kontakt/index.html` | `/kontakt` | 301 to `/kontakt/` |
 | `assets/site.css` | `/assets/site.css` | 200, unchanged asset |
-| No matching file or directory | `/missing` | 404 |
+| `404.html`, no matching requested file | `/missing` or `/nested/missing` | 404, project's custom error page |
+| `404.html` | `/404.html` | 200, direct file request |
+| No matching file or directory and no `404.html` | `/missing` | 404, Apache fallback error page |
 
 Keep `DirectoryIndex index.html` and the default `DirectorySlash On` behavior
 of `mod_dir`. Disable `MultiViews` in the existing `<Directory /target>`
@@ -179,9 +189,28 @@ mapped at this stage. Existing files and directories take precedence. Only a
 missing path whose last segment has no extension and whose corresponding
 `.html` file exists is internally rewritten, without a browser redirect.
 Subrequests are excluded to prevent recursive lookups. The existing access
-restrictions and optional HTML reload filter remain in force.
+restrictions and optional HTML reload filter remain in force for normal pages.
 
-References: [Jekyll permalinks](https://jekyllrb.com/docs/permalinks/),
+#### Custom 404 pages
+
+Set `ErrorDocument 404 /404.html` in the project virtual host. GitHub Pages
+supports a custom `404.html` at the published site root (Jekyll can also
+generate it from a `404.md` with the permalink `/404.html`). Apache resolves
+this local URL through the same project's `VirtualDocumentRoot`, preserving
+the original request URL and HTTP 404 status. Do not redirect to another host
+or serve the homepage with status 200 for missing URLs.
+
+If the site has no `404.html`, Apache returns its built-in 404 response,
+including a note that the custom error document could not be found. Its
+appearance differs from the default GitHub Pages error page. Access denials
+remain 403; the error document does not bypass the existing host or hidden-file
+restrictions. Apache's HTML substitution filter is not guaranteed to run on
+error responses; preview reload injection is intended for normal HTML pages.
+
+References:
+[GitHub Pages custom 404 pages](https://docs.github.com/en/pages/getting-started-with-github-pages/creating-a-custom-404-page-for-your-github-pages-site),
+[GitHub Pages extensionless URL demonstration](https://rsp.github.io/gh-pages-no-extension/test1),
+[Apache ErrorDocument](https://httpd.apache.org/docs/2.4/mod/core.html#errordocument), [Jekyll permalinks](https://jekyllrb.com/docs/permalinks/),
 [Apache mod_dir](https://httpd.apache.org/docs/2.4/mod/mod_dir.html),
 [Apache mod_rewrite](https://httpd.apache.org/docs/2.4/mod/mod_rewrite.html),
 [Apache MultiViews](https://httpd.apache.org/docs/2.4/mod/mod_negotiation.html#multiviews).

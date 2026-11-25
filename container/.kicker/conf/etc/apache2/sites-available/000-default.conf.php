@@ -11,7 +11,9 @@
     ServerAlias ${CDN_HOST_PATTERN}
     UseCanonicalName Off
     VirtualDocumentRoot /target/%1
+    # Match GitHub Pages: use the current site's custom 404, preserving status.
     DirectoryIndex index.html
+    ErrorDocument 404 /404.html
 
     ErrorLog /proc/self/fd/2
     CustomLog /proc/self/fd/1 combined
