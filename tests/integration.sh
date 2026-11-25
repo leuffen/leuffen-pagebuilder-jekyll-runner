@@ -38,7 +38,7 @@ test "$(curl --silent -o /dev/null -w '%{http_code}' -H 'Host: demo.localhost' h
 # Inject an external script URL without serving a local file or changing published files.
 reload_url='https://preview-tools.example.com/reload.js?v=1&mode=preview'
 PREVIEW_RELOAD_JS_URL="$reload_url" "${compose[@]}" up --detach --no-build --force-recreate --no-deps worker
-html="$(curl --fail --silent --show-error --retry 15 --retry-delay 1 --retry-connrefused -H 'Host: demo.localhost' http://localhost:8080/)"
+html="$(curl --fail --silent --show-error --retry 15 --retry-delay 1 --retry-connrefused --retry-all-errors -H 'Host: demo.localhost' http://localhost:8080/)"
 grep -Fq '<script src="https://preview-tools.example.com/reload.js?v=1&amp;mode=preview"></script></body>' <<< "$html"
 test "$(curl --silent -o /dev/null -w '%{http_code}' -H 'Host: demo.localhost' http://localhost:8080/__preview_reload.js)" = 404
 test "$(curl --fail --silent --show-error -H 'Host: demo.localhost' http://localhost:8080/plain.txt)" = '</body>'
@@ -46,7 +46,7 @@ sha256sum --check "$checksum_file"
 
 # Disabling reload on the next start must remove the injected tag again.
 PREVIEW_RELOAD_JS_URL= "${compose[@]}" up --detach --no-build --force-recreate --no-deps worker
-html="$(curl --fail --silent --show-error --retry 15 --retry-delay 1 --retry-connrefused -H 'Host: demo.localhost' http://localhost:8080/)"
+html="$(curl --fail --silent --show-error --retry 15 --retry-delay 1 --retry-connrefused --retry-all-errors -H 'Host: demo.localhost' http://localhost:8080/)"
 if [[ "$html" == *'<script src='* ]]; then
     echo 'Reload script still present after disabling it' >&2
     exit 1
