@@ -19,5 +19,7 @@ command:
     - "sudo curl -fsSL https://getcomposer.org/composer-stable.phar -o /usr/local/bin/composer"
     - "sudo chmod 755 /usr/local/bin/composer"
     - "composer install --no-dev --no-interaction --prefer-dist --no-scripts --optimize-autoloader"
+  init:
+    - "sudo mv /etc/apache2/sites-available/000-default.conf.php /etc/apache2/sites-available/000-default.conf"
   run:
     - "php /opt/bin/worker.php"
