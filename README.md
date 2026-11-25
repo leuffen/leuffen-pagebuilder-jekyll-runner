@@ -140,6 +140,52 @@ The Apache vhost in `container/.kicker/` uses `CDN_HOST_PATTERN` and
 Provide wildcard DNS (or a reverse proxy) retaining the Host header.
 Terminate TLS at a reverse proxy if required.
 
+### Jekyll permalink routing
+
+Jekyll writes static output files; the Apache CDN must support both flat HTML
+files and directory-style permalinks without changing the published files.
+The URL is resolved relative to the current project's virtual document root.
+
+| Generated file | Request path | Expected result |
+| --- | --- | --- |
+| `index.html` | `/` | 200, index page |
+| `online-termin.html` | `/online-termin.html` or `/online-termin` | 200, same HTML |
+| `leistungen/beratung.html` | `/leistungen/beratung` | 200, nested HTML |
+| `kontakt/index.html` | `/kontakt/` | 200, directory index |
+| `kontakt/index.html` | `/kontakt` | 301 to `/kontakt/` |
+| `assets/site.css` | `/assets/site.css` | 200, unchanged asset |
+| No matching file or directory | `/missing` | 404 |
+
+Keep `DirectoryIndex index.html` and the default `DirectorySlash On` behavior
+of `mod_dir`. Disable `MultiViews` in the existing `<Directory /target>`
+options: content negotiation can select a different extension (such as CSS)
+or return 406 depending on the request's Accept header. Instead, use
+`mod_rewrite` in the project virtual host after its existing host validation:
+
+```apache
+    # Resolve Jekyll's extensionless HTML permalinks after the host guard.
+    # Look ahead through VirtualDocumentRoot without rewriting subrequests.
+    RewriteCond %{IS_SUBREQ} =false
+    RewriteCond %{LA-U:REQUEST_FILENAME} ^(/target/.*)$
+    RewriteCond %1 !-f
+    RewriteCond %1 !-d
+    RewriteCond %1.html -f
+    RewriteRule ^(/(?:.*/)?[^/.]+)$ $1.html [PT,L]
+```
+
+The URL-based lookahead resolves the filesystem path through
+`VirtualDocumentRoot /target/%1`; the ordinary `REQUEST_FILENAME` is not yet
+mapped at this stage. Existing files and directories take precedence. Only a
+missing path whose last segment has no extension and whose corresponding
+`.html` file exists is internally rewritten, without a browser redirect.
+Subrequests are excluded to prevent recursive lookups. The existing access
+restrictions and optional HTML reload filter remain in force.
+
+References: [Jekyll permalinks](https://jekyllrb.com/docs/permalinks/),
+[Apache mod_dir](https://httpd.apache.org/docs/2.4/mod/mod_dir.html),
+[Apache mod_rewrite](https://httpd.apache.org/docs/2.4/mod/mod_rewrite.html),
+[Apache MultiViews](https://httpd.apache.org/docs/2.4/mod/mod_negotiation.html#multiviews).
+
 ### Optional preview reload script
 
 Set `PREVIEW_RELOAD_JS_URL` to the URL string that should appear in the

@@ -18,7 +18,7 @@
 
     <Directory /target>
         AllowOverride None
-        Options -Indexes -ExecCGI -Includes -FollowSymLinks +MultiViews
+        Options -Indexes -ExecCGI -Includes -FollowSymLinks -MultiViews
         Require method GET HEAD
     </Directory>
 
@@ -56,4 +56,13 @@ if ($reloadUrl !== false && $reloadUrl !== '') {
     RewriteEngine On
     RewriteCond %{HTTP_HOST} !^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+(?::[0-9]{1,5})?$ [NC]
     RewriteRule ^ - [F]
+
+    # Resolve Jekyll's extensionless HTML permalinks after the host guard.
+    # Look ahead through VirtualDocumentRoot without rewriting subrequests.
+    RewriteCond %{IS_SUBREQ} =false
+    RewriteCond %{LA-U:REQUEST_FILENAME} ^(/target/.*)$
+    RewriteCond %1 !-f
+    RewriteCond %1 !-d
+    RewriteCond %1.html -f
+    RewriteRule ^(/(?:.*/)?[^/.]+)$ $1.html [PT,L]
 </VirtualHost>
