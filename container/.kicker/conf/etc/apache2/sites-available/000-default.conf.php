@@ -59,12 +59,17 @@ if ($reloadUrl !== false && $reloadUrl !== '') {
     RewriteCond %{HTTP_HOST} !^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+(?::[0-9]{1,5})?$ [NC]
     RewriteRule ^ - [F]
 
-    # Resolve Jekyll's extensionless HTML permalinks after the host guard.
-    # Look ahead through VirtualDocumentRoot without rewriting subrequests.
+    # Flat HTML wins over a same-named directory for slashless URLs.
     RewriteCond %{IS_SUBREQ} =false
     RewriteCond %{LA-U:REQUEST_FILENAME} ^(/target/.*)$
     RewriteCond %1 !-f
-    RewriteCond %1 !-d
     RewriteCond %1.html -f
     RewriteRule ^(/(?:.*/)?[^/.]+)$ $1.html [PT,L]
+
+    # A slash prefers a real directory index; otherwise serve sibling HTML.
+    RewriteCond %{IS_SUBREQ} =false
+    RewriteCond %{LA-U:REQUEST_FILENAME} ^(/target/.*[^/])/?$
+    RewriteCond %1/index.html !-f
+    RewriteCond %1.html -f
+    RewriteRule ^(/(?:.*/)?[^/.]+)/$ $1.html [PT,L]
 </VirtualHost>
