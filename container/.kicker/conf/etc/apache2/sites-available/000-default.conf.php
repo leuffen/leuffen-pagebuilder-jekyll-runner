@@ -1,3 +1,9 @@
+# Preview responses must never be stored by browsers or shared HTTP caches.
+Header onsuccess unset Cache-Control
+Header always set Cache-Control "no-store, no-cache, must-revalidate, max-age=0"
+Header always set Pragma "no-cache"
+Header always set Expires "0"
+
 # Catch all unknown hosts before the project virtual host.
 <VirtualHost *:80>
     ServerName denied.invalid
