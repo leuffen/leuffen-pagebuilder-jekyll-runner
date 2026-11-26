@@ -155,9 +155,12 @@ Pages HTTP header, CDN feature or error-page design.
 | --- | --- | --- |
 | `index.html` | `/` | 200, index page |
 | `online-termin.html` | `/online-termin.html` or `/online-termin` | 200, same HTML, no redirect |
-| `online-termin.html` | `/online-termin/` | 404, not a directory permalink |
+| `online-termin.html` | `/online-termin/` | 200, same HTML (preview-specific fallback) |
 | `online-termin.html` and `online-termin.css` | `/online-termin` | 200, HTML, independent of Accept |
 | `online-termin` and `online-termin.html` | `/online-termin` | 200, exact file takes precedence |
+| `leistungen.html` and `leistungen/beratung.html` | `/leistungen` or `/leistungen/` | 200, `leistungen.html`, no redirect |
+| `leistungen.html` and `leistungen/index.html` | `/leistungen` | 200, `leistungen.html`, no redirect |
+| `leistungen.html` and `leistungen/index.html` | `/leistungen/` | 200, `leistungen/index.html` |
 | `leistungen/beratung.html` | `/leistungen/beratung` | 200, nested HTML |
 | `kontakt/index.html` | `/kontakt/` | 200, directory index |
 | `kontakt/index.html` | `/kontakt` | 301 to `/kontakt/` |
@@ -173,23 +176,46 @@ or return 406 depending on the request's Accept header. Instead, use
 `mod_rewrite` in the project virtual host after its existing host validation:
 
 ```apache
-    # Resolve Jekyll's extensionless HTML permalinks after the host guard.
-    # Look ahead through VirtualDocumentRoot without rewriting subrequests.
+    # Flat HTML wins over a same-named directory for slashless URLs.
     RewriteCond %{IS_SUBREQ} =false
     RewriteCond %{LA-U:REQUEST_FILENAME} ^(/target/.*)$
     RewriteCond %1 !-f
-    RewriteCond %1 !-d
     RewriteCond %1.html -f
     RewriteRule ^(/(?:.*/)?[^/.]+)$ $1.html [PT,L]
+
+    # A slash prefers a real directory index; otherwise serve sibling HTML.
+    RewriteCond %{IS_SUBREQ} =false
+    RewriteCond %{LA-U:REQUEST_FILENAME} ^(/target/.*[^/])/?$
+    RewriteCond %1/index.html !-f
+    RewriteCond %1.html -f
+    RewriteRule ^(/(?:.*/)?[^/.]+)/$ $1.html [PT,L]
 ```
 
 The URL-based lookahead resolves the filesystem path through
 `VirtualDocumentRoot /target/%1`; the ordinary `REQUEST_FILENAME` is not yet
-mapped at this stage. Existing files and directories take precedence. Only a
-missing path whose last segment has no extension and whose corresponding
-`.html` file exists is internally rewritten, without a browser redirect.
-Subrequests are excluded to prevent recursive lookups. The existing access
-restrictions and optional HTML reload filter remain in force for normal pages.
+mapped at this stage. For a URL without a trailing slash, an exact regular
+file takes precedence, followed by the corresponding `.html` file. A directory
+with the same name must not suppress this HTML fallback: Jekyll can produce
+both `leistungen.html` and a `leistungen/` directory containing subpages.
+Allowing Apache's directory redirect to run first would send the browser
+to a directory without an index and can produce a forbidden or missing-page
+response. Only when no flat HTML match exists does normal directory handling
+apply, including the redirect to the trailing slash for directory indexes.
+
+For URLs ending in a slash, a real `index.html` takes precedence. Otherwise,
+if the sibling `.html` exists, serve it internally without redirecting.
+This is an intentional preview-specific extension: the public GitHub Pages
+test site returns 404 for a trailing slash appended to a flat HTML URL.
+The fallback also avoids redirect loops when a browser has cached an old
+directory redirect. Prefer slashless links to flat HTML files because relative
+asset URLs resolve differently with a trailing slash. The exact collision
+precedence on GitHub Pages has not been independently verified; the table
+defines the required Preview behavior.
+
+Both rewrites apply only to extensionless final path segments and only when
+the target HTML file exists. Subrequests are excluded to prevent recursive
+lookups. The existing access restrictions and optional HTML reload filter
+remain in force for normal pages.
 
 #### Custom 404 pages
 
