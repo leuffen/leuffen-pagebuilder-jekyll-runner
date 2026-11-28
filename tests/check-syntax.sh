@@ -4,16 +4,21 @@ set -euo pipefail
 image="leuffen-pagebuilder-preview:local"
 docker run --rm --entrypoint sh -v "$PWD:/test-suite:ro" -w /test-suite "$image" -ec '
     find /opt/src /opt/bin /test-suite/src /test-suite/tests -path "*/vendor" -prune -o -name "*.php" -print0 | xargs -0 -n1 php -l
-    php /opt/.kicker/conf/etc/nginx/nginx.conf > /etc/nginx/nginx.conf
+    /kickstart/bin/_kick_php -f /opt/.kicker/conf/etc/nginx/nginx.conf > /etc/nginx/nginx.conf
     grep -Fq "limit_conn preview_subscribers 400;" /etc/nginx/nginx.conf
     nginx -t
-    PREVIEW_SUBSCRIBER_LIMIT=7 php /opt/.kicker/conf/etc/nginx/nginx.conf > /etc/nginx/nginx.conf
+    PREVIEW_SUBSCRIBER_LIMIT=7 /kickstart/bin/_kick_php -f /opt/.kicker/conf/etc/nginx/nginx.conf > /etc/nginx/nginx.conf
     grep -Fq "limit_conn preview_subscribers 7;" /etc/nginx/nginx.conf
     nginx -t
-    if PREVIEW_SUBSCRIBER_LIMIT=0 php /opt/.kicker/conf/etc/nginx/nginx.conf > /dev/null 2>&1; then
-        echo "Invalid subscriber limit was accepted" >&2
-        exit 1
-    fi
+    PREVIEW_SUBSCRIBER_LIMIT=65535 /kickstart/bin/_kick_php -f /opt/.kicker/conf/etc/nginx/nginx.conf > /etc/nginx/nginx.conf
+    grep -Fq "limit_conn preview_subscribers 65535;" /etc/nginx/nginx.conf
+    nginx -t
+    for invalid_limit in 0 65536 -1 1.5 abc; do
+        if PREVIEW_SUBSCRIBER_LIMIT="$invalid_limit" /kickstart/bin/_kick_php -f /opt/.kicker/conf/etc/nginx/nginx.conf > /dev/null 2>&1; then
+            echo "Invalid subscriber limit was accepted: $invalid_limit" >&2
+            exit 1
+        fi
+    done
     php tests/publisher.php
 '
 composer validate --no-check-publish
