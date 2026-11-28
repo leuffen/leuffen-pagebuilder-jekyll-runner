@@ -29,11 +29,11 @@ jobs:
           secret-envs: composer_auth=COMPOSER_AUTH
           cache-from: type=gha,scope=worker
           cache-to: type=gha,scope=worker,mode=max
-      - name: Check PHP and Apache syntax
+      - name: Check PHP, rendered Nginx config and publisher boundary
         run: bash tests/check-syntax.sh
       - name: Install Composer preview test client
         run: composer install --working-dir=tests --no-interaction --prefer-dist
-      - name: Verify RabbitMQ builds and static CDN
+      - name: Verify builds, CDN routing and Nchan browser messages
         run: bash tests/integration.sh
       - name: Show service logs
         if: always()
