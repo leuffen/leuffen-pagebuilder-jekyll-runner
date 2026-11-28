@@ -327,9 +327,9 @@ def check_messages():
     # The limit is shared across hostnames and does not limit static requests.
     readers = []
     try:
-        for _ in range(5):
+        for _ in range(400):
             readers.append(WebSocket("limit-" + uuid.uuid4().hex))
-        assert request("/__preview/events?channel=sixth", host="other.localhost")[0] == 429
+        assert request("/__preview/events?channel=over-limit", host="other.localhost")[0] == 429
         assert request("/")[0] == 200
     finally:
         for reader in readers:
@@ -339,7 +339,7 @@ def check_messages():
         assert request("/__preview/events" + query)[0] == 400, query
     assert request("/__preview/events?channel=valid", method="POST")[0] == 403
     assert request("/publish?channel=valid", method="POST")[0] == 403
-    print("RabbitMQ to Nchan: broadcast, channel isolation, raw bodies, WS/SSE/long-poll and five-IP limit passed", flush=True)
+    print("RabbitMQ to Nchan: broadcast, channel isolation, raw bodies, WS/SSE/long-poll and 400-per-IP limit passed", flush=True)
 
 
 def check_publisher_unavailable():
