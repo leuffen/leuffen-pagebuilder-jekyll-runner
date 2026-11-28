@@ -1,10 +1,11 @@
 {
   "name": "leuffen/pagebuilder-preview-server",
-  "description": "RabbitMQ preview worker and Apache CDN using the external Jekyll Builder",
+  "description": "RabbitMQ preview worker, Nginx CDN and Nchan browser messages",
   "type": "project",
   "license": "MIT",
   "require": {
     "php": ">=8.5",
+    "ext-curl": "*",
     "ext-json": "*",
     "ext-pcntl": "*",
     "ext-zip": "*",

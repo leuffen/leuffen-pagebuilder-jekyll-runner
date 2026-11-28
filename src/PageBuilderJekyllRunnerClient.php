@@ -6,11 +6,12 @@ namespace Leuffen\PagebuilderPreview\Client;
 
 use Leuffen\PagebuilderPreview\Client\Exception\PageBuilderJekyllBuildException;
 use Leuffen\PagebuilderPreview\Client\Exception\PageBuilderJekyllConnectionException;
+use Leuffen\PagebuilderPreview\Client\Exception\PageBuilderMessageException;
 use PhpAmqpLib\Connection\AMQPStreamConnection;
 use PhpAmqpLib\Exception\AMQPTimeoutException;
 use PhpAmqpLib\Message\AMQPMessage;
 
-/** Portable PHP client for the Jekyll Runner (requires php-amqplib ^3.7). */
+/** Portable PHP client for Preview builds and browser messages. */
 final class PageBuilderJekyllRunnerClient
 {
     private array $connection;
@@ -61,16 +62,81 @@ final class PageBuilderJekyllRunnerClient
                 throw new PageBuilderJekyllBuildException("INVALID_REQUEST", "Invalid $name directory", $source, $target);
             }
         }
+        $reply = $this->request('build', ['source' => $source, 'target' => $target], $timeout, $context);
+        if (!$reply['ok']) {
+            $error = $reply['error'] ?? [];
+            $code = is_string($error['code'] ?? null) ? $error['code'] : 'UNKNOWN_ERROR';
+            $message = is_string($error['message'] ?? null) ? $error['message'] : 'Unknown error';
+            $details = is_array($error['details'] ?? null) ? $error['details'] : [];
+            throw new PageBuilderJekyllBuildException($code, $message, $source, $target, $details);
+        }
+        return $reply['result'];
+    }
+
+    /**
+     * Publish a UTF-8 body to browsers subscribed to one Nchan channel.
+     *
+     * RabbitMQ transports the command to the Preview worker, which posts the
+     * body unchanged to its local Nginx publisher. JSON data must be encoded
+     * explicitly by the caller. The complete encoded RPC envelope is limited
+     * to 65,536 bytes. A successful result confirms Nchan's acceptance, not
+     * delivery to a browser. Broker redelivery may publish a message twice.
+     *
+     * @param string $channel Individual channel name: 1-128 ASCII letters,
+     *     digits, underscores or hyphens; one namespace per Nginx instance.
+     * @param string $body UTF-8 message body; never interpreted as a command.
+     * @param int $timeout Reply deadline in seconds, including queue wait.
+     *     Messages may wait behind a build in the existing worker.
+     * @return array{channel:string,status:string} Channel and status published.
+     * @throws PageBuilderMessageException For invalid channel/body or rejected publication.
+     * @throws PageBuilderJekyllConnectionException For an invalid timeout,
+     *     oversized RPC envelope, transport failure or invalid reply.
+     * @example $client->sendWebSocketMessage('preview-session-42', '{"type":"reload"}');
+     * @see https://github.com/leuffen/leuffen-pagebuilder-preview#browser-messages
+     */
+    public function sendWebSocketMessage(string $channel, string $body, int $timeout = 360): array
+    {
+        if (!preg_match('/^[A-Za-z0-9_-]{1,128}$/D', $channel)) {
+            throw new PageBuilderMessageException('INVALID_REQUEST', 'Invalid channel name', $channel);
+        }
+        if (preg_match('//u', $body) !== 1) {
+            throw new PageBuilderMessageException('INVALID_REQUEST', 'Message body must be valid UTF-8', $channel);
+        }
+
+        // Der Body bleibt unverändert; nur das RPC-Envelope wird serialisiert.
+        $reply = $this->request('publish', ['channel' => $channel, 'body' => $body], $timeout, "channel: $channel");
+        if (!$reply['ok']) {
+            $error = $reply['error'] ?? [];
+            $code = is_string($error['code'] ?? null) ? $error['code'] : 'UNKNOWN_ERROR';
+            $message = is_string($error['message'] ?? null) ? $error['message'] : 'Unknown error';
+            $details = is_array($error['details'] ?? null) ? $error['details'] : [];
+            throw new PageBuilderMessageException($code, $message, $channel, $details);
+        }
+        if (($reply['result']['channel'] ?? null) !== $channel
+            || ($reply['result']['status'] ?? null) !== 'published') {
+            throw new PageBuilderJekyllConnectionException("INVALID_REPLY: no publish confirmation (channel: $channel)");
+        }
+        return $reply['result'];
+    }
+
+    private function request(string $method, array $params, int $timeout, string $context): array
+    {
         if ($timeout < 1) {
             throw new PageBuilderJekyllConnectionException("Invalid timeout ($context)");
         }
         $connection = null;
         $channel = null;
         try {
+            // Größe vor dem Verbindungsaufbau prüfen, einschließlich JSON-Escaping.
+            $id = bin2hex(random_bytes(16));
+            $request = json_encode(['version' => 1, 'id' => $id, 'method' => $method,
+                'params' => $params], JSON_THROW_ON_ERROR);
+            if ($method === 'publish' && strlen($request) > 65536) {
+                throw new PageBuilderJekyllConnectionException("RPC request exceeds 64 KiB ($context)");
+            }
             $connection = new AMQPStreamConnection(...$this->connection);
             $channel = $connection->channel();
             [$replyQueue] = $channel->queue_declare('', false, false, true, true);
-            $id = bin2hex(random_bytes(16));
             $reply = null;
 
             // Register the reply consumer before publishing the request.
@@ -80,9 +146,7 @@ final class PageBuilderJekyllRunnerClient
                         $reply = json_decode($message->getBody(), true, 16, JSON_THROW_ON_ERROR);
                     }
                 });
-            $request = ['version' => 1, 'id' => $id, 'method' => 'build',
-                'params' => ['source' => $source, 'target' => $target]];
-            $channel->basic_publish(new AMQPMessage(json_encode($request, JSON_THROW_ON_ERROR),
+            $channel->basic_publish(new AMQPMessage($request,
                 ['content_type' => 'application/json', 'delivery_mode' => 2,
                     'correlation_id' => $id, 'reply_to' => $replyQueue]), 'leuffen.jekyll.v1', 'rpc.request');
 
@@ -103,18 +167,11 @@ final class PageBuilderJekyllRunnerClient
                 || ($reply['id'] ?? null) !== $id || !is_bool($reply['ok'] ?? null)) {
                 throw new PageBuilderJekyllConnectionException("INVALID_REPLY ($context)");
             }
-            if (!$reply['ok']) {
-                $error = $reply['error'] ?? [];
-                $code = is_string($error['code'] ?? null) ? $error['code'] : 'UNKNOWN_ERROR';
-                $message = is_string($error['message'] ?? null) ? $error['message'] : 'Unknown error';
-                $details = is_array($error['details'] ?? null) ? $error['details'] : [];
-                throw new PageBuilderJekyllBuildException($code, $message, $source, $target, $details);
+            if ($reply['ok'] && !is_array($reply['result'] ?? null)) {
+                throw new PageBuilderJekyllConnectionException("INVALID_REPLY: no $method result ($context)");
             }
-            if (!is_array($reply['result'] ?? null)) {
-                throw new PageBuilderJekyllConnectionException("INVALID_REPLY: no build result ($context)");
-            }
-            return $reply['result'];
-        } catch (PageBuilderJekyllBuildException | PageBuilderJekyllConnectionException $error) {
+            return $reply;
+        } catch (PageBuilderJekyllConnectionException $error) {
             throw $error;
         } catch (\Throwable $error) {
             // Driver exception details may contain credentials: keep the public message safe.

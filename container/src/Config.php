@@ -10,7 +10,7 @@ final readonly class Config
      * Configuration for the RabbitMQ worker and external HTTP builder.
      *
      * @param string $sourceRoot Root of the read-only source volume.
-     * @param string $targetRoot Root of the Apache CDN target volume.
+     * @param string $targetRoot Root of the Nginx CDN target volume.
      * @param string $builderUrl HTTP base URL of the external Jekyll Builder.
      * @param string $amqpConnection AMQP URI including the virtual host.
      * @throws \InvalidArgumentException On invalid settings.

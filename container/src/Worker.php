@@ -19,7 +19,7 @@ final class Worker
     private bool $stopping = false;
 
     /**
-     * Verbindet einen BuildRunner mit einem RabbitMQ-RPC-Consumer.
+     * Verbindet BuildRunner und NchanPublisher mit einem RabbitMQ-RPC-Consumer.
      *
      * Der Constructor öffnet keine Verbindung. Ein Worker führt jeweils einen
      * Build aus; mehrere Container teilen sich die konfigurierte Request-Queue.
@@ -28,14 +28,17 @@ final class Worker
      * @param Config $config Verzeichnisse, Limits und AMQP-Verbindungsdaten.
      * @param BuildRunner $builder Ausführung und Veröffentlichung der Builds.
      * @param PhoreLogger $log Logger für Start, Ergebnis und Reconnect-Diagnosen.
-     * @example new Worker($config, new BuildRunner($config), $log);
+     * @param NchanPublisher $publisher Lokale Veröffentlichung von Browser-Nachrichten.
+     * @example new Worker($config, new BuildRunner($config), $log, $publisher);
      * @see self::run()
      */
     public function __construct(
         private readonly Config $config,
         private readonly BuildRunner $builder,
         private readonly PhoreLogger $log,
-    ) {}
+        private readonly NchanPublisher $publisher,
+    ) {
+    }
 
     /**
      * Verarbeitet RPC-Nachrichten bis SIGTERM oder SIGINT empfangen wird.
@@ -46,7 +49,7 @@ final class Worker
      * ein Build erneut zugestellt werden; eine Exactly-once-Garantie besteht nicht.
      *
      * @return void Kehrt nach dem geordneten Stop zurück.
-     * @example (new Worker($config, new BuildRunner($config), $log))->run();
+     * @example (new Worker($config, new BuildRunner($config), $log, $publisher))->run();
      * @see ../README.md
      */
     public function run(): void
@@ -193,7 +196,7 @@ final class Worker
     {
         $response = ['version' => 1, 'id' => $id, 'ok' => false];
         try {
-            // Envelope und relative Pfade prüfen, bevor Dateiarbeit beginnt.
+            // Das gemeinsame Envelope vor Build oder Veröffentlichung prüfen.
             if (strlen($body) > 65536) {
                 throw new \InvalidArgumentException('Request exceeds 64 KiB');
             }
@@ -203,8 +206,21 @@ final class Worker
                 || !is_array($request['params'] ?? null)) {
                 throw new \InvalidArgumentException('Expected a version 1 RPC request matching correlation_id');
             }
+            if ($request['method'] === 'publish') {
+                $channel = $request['params']['channel'] ?? null;
+                $messageBody = $request['params']['body'] ?? null;
+                if (!is_string($channel) || !is_string($messageBody)) {
+                    throw new \InvalidArgumentException('params.channel and params.body must be strings');
+                }
+
+                // Der Publisher validiert den Channel und bestätigt erst nach HTTP-Erfolg.
+                $this->log->debug('Publish request {}: forwarding UTF-8 body to local Nchan', [$id]);
+                $result = $this->publisher->publish($channel, $messageBody);
+                $this->log->info('Publish {} accepted by local Nchan on channel {}', [$id, $channel]);
+                return ['version' => 1, 'id' => $id, 'ok' => true, 'result' => $result];
+            }
             if ($request['method'] !== 'build') {
-                $response['error'] = ['code' => 'UNKNOWN_METHOD', 'message' => 'Only method build is supported', 'details' => new \stdClass()];
+                $response['error'] = ['code' => 'UNKNOWN_METHOD', 'message' => 'Supported methods are build and publish', 'details' => new \stdClass()];
                 return $response;
             }
             $source = $request['params']['source'] ?? null;
@@ -228,7 +244,8 @@ final class Worker
         } catch (\JsonException | \InvalidArgumentException $error) {
             $response['error'] = ['code' => 'INVALID_REQUEST', 'message' => $error->getMessage() . (isset($source, $target) ? " (source: $source; target: $target)" : ''), 'details' => new \stdClass()];
         } catch (\RuntimeException $error) {
-            $response['error'] = ['code' => 'BUILD_ERROR', 'message' => $error->getMessage() . (isset($source, $target) ? " (source: $source; target: $target)" : ''), 'details' => new \stdClass()];
+            $code = ($request['method'] ?? null) === 'publish' ? 'PUBLISH_ERROR' : 'BUILD_ERROR';
+            $response['error'] = ['code' => $code, 'message' => $error->getMessage() . (isset($source, $target) ? " (source: $source; target: $target)" : ''), 'details' => new \stdClass()];
         }
         $this->log->error('Request {} failed: {}', [$id, $response['error']['message']]);
         return $response;

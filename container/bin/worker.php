@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use Leuffen\PagebuilderPreview\BuildRunner;
 use Leuffen\PagebuilderPreview\Config;
+use Leuffen\PagebuilderPreview\NchanPublisher;
 use Leuffen\PagebuilderPreview\Worker;
 use Phore\Log\Driver\PhoreConsoleLoggerDriver;
 use Phore\Log\PhoreLogger;
@@ -19,4 +20,5 @@ $config = new Config(
     builderUrl: PREVIEW_BUILDER_URL,
     amqpConnection: CONF_AMQ_CONNECTION,
 );
-(new Worker($config, new BuildRunner($config), $log))->run();
+$publisher = new NchanPublisher('http://127.0.0.1:8081/publish');
+(new Worker($config, new BuildRunner($config), $log, $publisher))->run();
