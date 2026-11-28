@@ -126,6 +126,7 @@ overlapping sites. An unsuccessful build never replaces the existing site.
 | `PREVIEW_BUILDER_URL` | `http://jekyll-builder` | External HTTP builder URL |
 | `CDN_HOST_PATTERN` | `*.localhost` | Accepted hostname pattern; whitespace-separated patterns and the existing `*`/`?` wildcards are supported |
 | `PREVIEW_RELOAD_JS_URL` | empty (disabled) | Absolute HTTP(S) URL of an externally hosted reload script |
+| `PREVIEW_SUBSCRIBER_LIMIT` | `400` | Simultaneous subscriber connections per IP (1–65535) |
 
 Kickstart renders `config.php` from `container/config.php.dist`.
 
@@ -383,15 +384,16 @@ application event ID or revision when duplicate handling matters.
 
 ### Connection limit and reverse proxies
 
-At most **five simultaneous subscriber connections per IP** are allowed across
-all preview hostnames and Nginx workers. Further subscriptions return HTTP 429.
+By default, **400 simultaneous subscriber connections per IP** are allowed
+across all preview hostnames and Nginx workers. Further subscriptions return
+HTTP 429. Set `PREVIEW_SUBSCRIBER_LIMIT` to override the default at startup.
 This applies only to `/__preview/events`, not to normal pages or assets. Tabs
 and users behind the same NAT share the limit. HTTP/2 streams count as separate
 active requests at Nginx.
 
 Nginx uses the actual TCP peer address by default. When a reverse proxy is in
 front, configure trusted real-IP forwarding in your deployment; otherwise all
-browsers behind that proxy share its five connections. For example, add this
+browsers behind that proxy share its connection limit. For example, add this
 inside `http {}` **only when `10.0.0.10` is your trusted proxy**:
 
 ```nginx
