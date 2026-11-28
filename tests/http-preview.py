@@ -83,6 +83,7 @@ def check_routing():
             path.write_text(content, encoding="utf-8")
         (root / "empty").mkdir()
         (root / "link.html").symlink_to("index.html")
+        (root / "linked-flat.html").symlink_to("index.html")
         (root / "link-dir").symlink_to("contact", target_is_directory=True)
 
         cases = [
@@ -123,7 +124,8 @@ def check_routing():
             no_cache(headers)
 
         for path in ["/empty/", "/htm-only/", "/.secret", "/nested/.secret",
-                     "/.private/file.html", "/link.html", "/link-dir/"]:
+                     "/.private/file.html", "/link.html", "/link-dir/",
+                     "/link-dir/index.html", "/linked-flat", "/linked-flat/"]:
             status, headers, _ = request(path, host=host)
             assert status == 403, (path, status)
             no_cache(headers)

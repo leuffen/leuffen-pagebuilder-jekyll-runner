@@ -213,7 +213,7 @@ HTML reload filter remain in force for normal pages.
 
 #### Custom 404 pages
 
-The project virtual host sets `error_page 404 /404.html`. GitHub Pages
+The project's 404 handler internally loads `/404.html`. GitHub Pages
 supports a custom `404.html` at the published site root (Jekyll can also
 generate it from a `404.md` with the permalink `/404.html`). Nginx resolves
 this local URL through the same project's root, preserving
@@ -225,6 +225,12 @@ appearance differs from Apache's and from the default GitHub Pages error page;
 the routing and status contract stays the same. Access denials remain 403;
 the error document does not bypass the host or hidden-file restrictions.
 Preview reload injection is intended for normal HTML pages.
+
+Symlinks are never served. The 404 handler distinguishes an existing blocked
+symlink from a genuinely missing file and returns 403 for that access denial.
+A dangling symlink or a missing child below a symlink can still produce Nginx's
+native 404, where Apache may reject the symlink ancestor with 403; neither
+response exposes the target's contents.
 
 References:
 [GitHub Pages custom 404 pages](https://docs.github.com/en/pages/getting-started-with-github-pages/creating-a-custom-404-page-for-your-github-pages-site),
