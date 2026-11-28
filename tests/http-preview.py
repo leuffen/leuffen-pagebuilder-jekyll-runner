@@ -346,9 +346,10 @@ def check_publisher_unavailable():
     deadline = time.monotonic() + 5
     while True:
         try:
-            with socket.create_connection((ADDRESS, PORT), timeout=0.2):
-                pass
-        except OSError:
+            # Docker's published-port proxy can still accept TCP after Nginx
+            # exits. A real HTTP response, not connect(), proves it is running.
+            request("/")
+        except (OSError, http.client.HTTPException):
             break
         assert time.monotonic() < deadline, "Nginx did not stop for publisher-failure test"
         time.sleep(0.05)
