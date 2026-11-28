@@ -255,7 +255,8 @@ def check_messages():
         # A valid, masked client frame must not turn a subscriber into a publisher.
         readers[0].send_frame(1, b"unauthorized-browser-publish")
         opcode, reason = readers[0].frame()
-        assert opcode == 8 and b"Publishing not allowed" in reason, (opcode, reason)
+        # The optional reason text varies across distribution module versions.
+        assert opcode == 8 and len(reason) >= 2 and struct.unpack("!H", reason[:2])[0] == 1008, (opcode, reason)
         readers[1].quiet()
     finally:
         for reader in readers:
